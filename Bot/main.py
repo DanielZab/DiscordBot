@@ -7,11 +7,12 @@ import hide
 # Standard library imports
 import os, shutil, datetime, sys, random, time, math, re
 
-# Google and discord api imports
+# Google and Discord api imports
 import discord
 from discord.ext import tasks, commands
 from discord_slash import SlashCommand, SlashContext
-import googleapiclient.discovery
+from youtube import YouTube
+
 
 # Audio file imports
 from pydub import AudioSegment
@@ -21,9 +22,15 @@ from pydub.utils import which
 # Environment variables
 from dotenv import load_dotenv
 
+# Database connection
+from database import DataBase
+
+# Multiprocessing
+import multi
+
 # Other imports
-import lyricsgenius, psutil
-import mysql.connector
+import lyricsgenius, psutil, asyncio
+
 # endregion
 
 # Import logger
@@ -57,6 +64,8 @@ class AudioFile:
                  length,
                  path: str,
                  downloaded: bool,
+                 id: int,
+                 queue_id: int,
                  boption) -> None:
         self.name = name
         self.url = url
@@ -64,6 +73,8 @@ class AudioFile:
         self.path = path
         self.downloaded = downloaded
         self.boption = boption
+        self.id = id
+        self.queue_id = int
 
 
 class MyClient(discord.Client):
@@ -77,32 +88,13 @@ class MyClient(discord.Client):
 # Get environment variables
 env_var = EnvVariables()
 
-connection = mysql.connector.connect(host='localhost',
-                                    database='musikbot',
-                                    user=env_var.SQL_USER,
-                                    password=env_var.SQL_PW)
-cursor = connection.cursor()
-now = time.localtime()
+# Create DataBase class instance
+db = DataBase(env_var.SQL_USER, env_var.SQL_PW)
+db.setup()
+db.add_to_queue(time.localtime())
 
-query = "DELETE FROM queuelist;"
-result = cursor.execute(query)
-connection.commit()
-query = "ALTER TABLE queuelist AUTO_INCREMENT = 1;"
-result = cursor.execute(query)
-connection.commit()
-
-f = '%Y-%m-%d %H:%M:%S'
-t = time.strftime(f, now)
-print(t)
-query = f"INSERT INTO queuelist (url, path, length, last_played) VALUES ('URL', 'PATH', 90, '{t}');"
-result = cursor.execute(query)
-connection.commit()
-print("Printed")
-if connection.is_connected():
-    cursor.close()
-    connection.close()
-
-
+# Create YouTube class instance
+yt = YouTube(env_var.DEVELOPER_KEY)
 
 # Assign clients
 client = MyClient()
@@ -112,7 +104,7 @@ genius = lyricsgenius.Genius(env_var.GENIUS_TOKEN)
 slash = SlashCommand(client)
 
 
-async def check_admin(ctx: SlashContext):
+async def check_admin(ctx: SlashContext) -> bool:
     '''
     Checks if a user has admin permissions
     '''
@@ -130,7 +122,7 @@ async def check_admin(ctx: SlashContext):
     return False
 
 
-async def join(ctx):
+async def join(ctx: SlashContext) -> bool:
     global client
 
     log.info("Trying to join a voice channel")
@@ -147,9 +139,12 @@ async def join(ctx):
     # Check if bot is already in a voice channel
     if client.channel:
 
-        # Move to the requested channel
-        log.info("Moving from current channel")
-        await client.channel.move_to(channel)
+        # Move to the requested channel if in wrong channel
+        if client.channel != ctx.author.voice.channel:
+            log.info("Moving from current channel")
+            await client.channel.move_to(channel)
+        else:
+            log.info("Already in channel")
     else:
 
         # Join channel
@@ -173,8 +168,13 @@ async def join(ctx):
     return False
 
 
-@slash.slash(name='play')
-async def _play(ctx: SlashContext, name: str):
+def download_audio(url) -> bool:
+    msg = f'youtube-dl -o "./test/%(title)s.%(ext)s" --extract-audio --audio-format m4a {url}'
+    os.system(msg)
+
+
+@slash.subcommand(base="play", subcommand_group='video', name="by_name")
+async def play_by_name(ctx: SlashContext, name, amount=1):
     '''
     Plays music
     '''
@@ -183,10 +183,31 @@ async def _play(ctx: SlashContext, name: str):
     if not await check_admin(ctx):
         return
 
+    #Join channel
     if not await join(ctx):
         return
 
-    await ctx.send("Joined successfully")
+    # Check amount of videos
+    if amount < 1:
+        await ctx.send("Very funny!")
+
+    elif amount == 1:
+        
+        # Get url
+        url = yt.get_search(name)[0]
+        if url:
+
+            # Download audio
+            await ctx.send("Downloading audio", hidden=True)
+            log.info("Starting download process")
+            multi.start_process(download_audio, (url,))
+            log.info("Finished downloading")
+            await ctx.send("Added to the queue")
+
+            #TODO play audio and add track to queuelist
+
+        else:
+            await ctx.send("Something went wrong, sorry :(")
 
 
 @client.event

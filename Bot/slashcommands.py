@@ -47,10 +47,47 @@ play = {
     "description": "Plays music. Note: You must be in a channel!",
     "options": [
         {
-            "name": "name",
+            "name": "video",
             "description": "Url or name of the video",
-            "type": 3,
-            "required": True
+            "type": 2,
+            "options": [
+                {
+                    "name": "by_name",
+                    "description": "Searches for a video in Youtube by its name",
+                    "type": 1,
+                    "options": [
+                        {
+                            "name": "name",
+                            "description": "The name of the video",
+                            "type": 3,
+                            "required": True
+                        },
+                        {
+                            "name": "amount",
+                            "description": "The number of results. Default value is 1",
+                            "type": 4
+                        }
+                    ]
+                },
+                {
+                    "name": "by_url",
+                    "description": "Searches for a video in Youtube by its url",
+                    "type": 1,
+                    "options": [
+                        {
+                            "name": "url",
+                            "description": "The url of the video",
+                            "type": 3,
+                            "required": True
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "postion",
+            "description": "The position in the queuelist.",
+            "type": 4
         }
     ]
 }
@@ -77,4 +114,4 @@ def get():
     print(r.text)
 
 
-get()
+post(play)
