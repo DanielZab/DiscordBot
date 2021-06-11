@@ -73,9 +73,9 @@ class DataBase:
         query = "ALTER TABLE queuelist AUTO_INCREMENT = 1;"
         self.execute(query)
 
-    def add_to_queue(self, info) -> None:
+    def add_to_queue(self, queue_id, url, path, length) -> None:
+
         #TODO: Implement
-        f = '%Y-%m-%d %H:%M:%S'
-        t = time.strftime(f, info)
-        query = f"INSERT INTO queuelist (queue_id, url, path, length, last_played) VALUES (1 ,'URL', 'PATH', 90, '{t}');"
+        query = f"INSERT INTO queuelist (queue_id, url, path, length) VALUES ({queue_id} ,'{url}', '{path}', {length});"
         self.execute(query)
+        log.info(f"{queue_id}/{url}/{path}/{length} added to queue list")

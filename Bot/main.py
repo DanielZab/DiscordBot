@@ -80,27 +80,21 @@ class AudioFile:
 class MyClient(discord.Client):
     def __init__(self) -> None:
         super().__init__()
+
+        # Create containers for current voice channel and its name
         self.channel = None
         self.vc = None
+
+        # Create counter for current track
+        self.queue_counter = 1
+
+        # Indicator whether new song can be played
+        self.done = True
 # endregion
 
 
-# Get environment variables
-env_var = EnvVariables()
-
-# Create DataBase class instance
-db = DataBase(env_var.SQL_USER, env_var.SQL_PW)
-db.setup()
-db.add_to_queue(time.localtime())
-
-# Create YouTube class instance
-yt = YouTube(env_var.DEVELOPER_KEY)
-
-# Assign clients
+# Assign slash command client
 client = MyClient()
-
-genius = lyricsgenius.Genius(env_var.GENIUS_TOKEN)
-
 slash = SlashCommand(client)
 
 
@@ -169,9 +163,82 @@ async def join(ctx: SlashContext) -> bool:
 
 
 def download_audio(url) -> bool:
-    msg = f'youtube-dl -o "./test/%(title)s.%(ext)s" --extract-audio --audio-format m4a {url}'
+
+    # download audio into specific directory as a 
+    msg = f'youtube-dl -o "./test/%(title)s.%(ext)s" --extract-audio {url}'
     os.system(msg)
 
+
+def add_to_queue(url, index=0) -> None:
+    
+    global db
+    
+    # Try downloading
+    try:
+        log.info("Starting download process")
+        multi.start_process(download_audio, (url,))
+        log.info("Finished downloading")
+
+    except Exception as e:
+        log.error("Failed downloading. Error: " + str(e))
+        return False
+
+    if index:
+        
+        index += client.queue_counter
+
+        #Move queue_id of all tracks past the most recent one
+        move_entries(index)
+
+    insert_into_queue(index, url)
+
+
+def move_entries(index) -> None:
+
+    global db
+    db.execute(" ".join(["UPDATE queuelist",
+                         "SET queue_id = queue_id + 1",
+                         f"WHERE queue_id >= {index};"]))
+
+def insert_into_queue(index, url) -> None:
+
+    global db
+    if not index:
+        query = "SELECT MAX(queue_id) FROM queuelist;"
+        if query:
+            index = 1 + db.exeute(query)[0][0]
+        else:
+            index = 1
+    
+    path = os.listdir("test")[0]
+    length = normalizeAudio("\\test\\" + path, "\\queue\\" + path)
+    path = "\\queue\\" + path
+    db.add_to_queue(index, url, path, length)
+
+def normalizeAudio(audiopath, destination_path) -> int:
+
+    # Get song with pydub
+    song = AudioSegment.from_file(audiopath)
+
+    # Normalize sound
+    loudness = song.dBFS
+    quieterAudio = 40 + loudness
+    song = song - quieterAudio
+
+    # Export song to new path
+    match = re.search(r"\.(?P<ending>[a-zA-Z0-9]+)$", audiopath)
+    song.export(destination_path, match.group('ending'))
+
+    # Return length of song
+    return song.duration_seconds
+
+def song_done(error):
+    global client
+    if error:
+        log.error("An error has occurred during playing: " + str(e))
+    else:
+        log.info("The song has ended")
+    client.done = False
 
 @slash.subcommand(base="play", subcommand_group='video', name="by_name")
 async def play_by_name(ctx: SlashContext, name, amount=1):
@@ -197,12 +264,12 @@ async def play_by_name(ctx: SlashContext, name, amount=1):
         url = yt.get_search(name)[0]
         if url:
 
-            # Download audio
+            # Download audio in a multiprocess
             await ctx.send("Downloading audio", hidden=True)
-            log.info("Starting download process")
-            multi.start_process(download_audio, (url,))
-            log.info("Finished downloading")
-            await ctx.send("Added to the queue")
+            if add_to_queue(url):
+                await ctx.send("Added to the queue")
+            else:
+                await ctx.send("Something went wrong")
 
             #TODO play audio and add track to queuelist
 
@@ -216,8 +283,40 @@ async def on_ready():
     # TODO:Delete past tracks
     if env_var.AUTO_HIDE == 'True':
         hide.hide()
+    check_player.start()
     # TODO:Change status
 
 
+@tasks.loop(seconds=1)
+async def check_player():
+    global client, db
+    log.info("Checking whether to play audio")
+    if client.done and client.vc:
+        if client.vc.is_playing() or client.vc.is_paused():
+            return
+        query = "SELECT MAX(queue_id) FROM queuelist;"
+        index = db.execute(query)[0][0]
+        if not index or index >= client.queue_counter:
+            path = db.execute(f"SELECT path FROM queuelist WHERE queue_id = {client.queue_counter}")[0][0]
+            source = discord.FFmpegOpusAudio(path)
+            client.vc.play(source, after=song_done)
+            client.queue_counter += 1
+
+
 if __name__ == "__main__":
+
+    # Get environment variables
+    env_var = EnvVariables()
+
+    # Create DataBase class instance
+    db = DataBase(env_var.SQL_USER, env_var.SQL_PW)
+    db.setup()
+
+    # Create YouTube class instance
+    yt = YouTube(env_var.DEVELOPER_KEY)
+
+    # Create connection to lyricsgenius api
+    genius = lyricsgenius.Genius(env_var.GENIUS_TOKEN)
+
+    # Run Discord Bot
     client.run(env_var.TOKEN)
