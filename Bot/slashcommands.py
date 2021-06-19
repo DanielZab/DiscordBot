@@ -66,6 +66,11 @@ play = {
                             "name": "amount",
                             "description": "The number of results. Default value is 1",
                             "type": 4
+                        },
+                        {
+                            "name": "index",
+                            "description": "At which position in queue",
+                            "type": 4
                         }
                     ]
                 },
@@ -79,6 +84,11 @@ play = {
                             "description": "The url of the video",
                             "type": 3,
                             "required": True
+                        },
+                        {
+                            "name": "index",
+                            "description": "At which position in queue",
+                            "type": 4
                         }
                     ]
                 }
@@ -114,4 +124,4 @@ def get():
     print(r.text)
 
 
-post(play)
+input(get())

@@ -1,6 +1,6 @@
 import mysql.connector
 import logging
-import time
+import time, os
 
 from mysql.connector.errors import Error
 
@@ -74,8 +74,33 @@ class DataBase:
         self.execute(query)
 
     def add_to_queue(self, queue_id, url, path, length) -> None:
+        '''
+        Adds a track to the queuelist table
+        '''
 
-        #TODO: Implement
         query = f"INSERT INTO queuelist (queue_id, url, path, length) VALUES ({queue_id} ,'{url}', '{path}', {length});"
         self.execute(query)
-        log.info(f"{queue_id}/{url}/{path}/{length} added to queue list")
+
+        log.info(f"{queue_id}/{url}/{path}/{length} added to queuelist")
+
+    def move_entries(self, index) -> None:
+
+        log.info(f"Moving all entries that are equal or bigger than {index}")
+
+        self.execute(" ".join(["UPDATE queuelist",
+                            "SET queue_id = queue_id + 1",
+                            f"WHERE queue_id >= {index};"]))
+
+    def insert_into_queue(self, index, url, length, path) -> None:
+
+        log.info(f"Inserting {url} to index {index}")
+
+        if not index:
+            query = "SELECT MAX(queue_id) FROM queuelist;"
+            result = self.execute(query)[0][0]
+            if result:
+                index = 1 + result
+            else:
+                index = 1
+        
+        self.add_to_queue(index, url, path, length)

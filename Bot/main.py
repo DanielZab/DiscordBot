@@ -1,18 +1,10 @@
 # region imports
+
+
 # High priority imports
 import logging
 import logger
 import hide
-
-# Standard library imports
-import os, shutil, datetime, sys, random, time, math, re
-
-# Google and Discord api imports
-import discord
-from discord.ext import tasks, commands
-from discord_slash import SlashCommand, SlashContext
-from youtube import YouTube
-
 
 # Audio file imports
 from pydub import AudioSegment
@@ -25,17 +17,22 @@ from dotenv import load_dotenv
 # Database connection
 from database import DataBase
 
-# Multiprocessing
-import multi
-
 # Other imports
-import lyricsgenius, psutil, asyncio
+import lyricsgenius, psutil, asyncio, subprocess
 
-# endregion
+# Standard library imports
+import os, shutil, datetime, sys, random, time, math, re
+
+# Google and Discord api imports
+import discord
+from discord.ext import tasks, commands
+from discord_slash import SlashCommand, SlashContext
+from youtube import YouTube
 
 # Import logger
 log = logging.getLogger(__name__)
 log.info("All modules have been imported")
+# endregion
 
 
 # region classes
@@ -44,6 +41,7 @@ class EnvVariables():
     Container for all environment variables
     '''
     def __init__(self) -> None:
+
         load_dotenv()
         # load all environment variables
         self.GENIUS_TOKEN = os.getenv('GENIUS_ACCESS_TOKEN')
@@ -67,6 +65,7 @@ class AudioFile:
                  id: int,
                  queue_id: int,
                  boption) -> None:
+
         self.name = name
         self.url = url
         self.length = length
@@ -78,7 +77,12 @@ class AudioFile:
 
 
 class MyClient(discord.Client):
+    '''
+    Extends the discord.Client class in order to add some custom properties
+    '''
+
     def __init__(self) -> None:
+
         super().__init__()
 
         # Create containers for current voice channel and its name
@@ -88,8 +92,14 @@ class MyClient(discord.Client):
         # Create counter for current track
         self.queue_counter = 1
 
-        # Indicator whether new song can be played
-        self.done = True
+        # Indicates if all requested songs have been played
+        self.waiting = True
+
+        # Lock which guarantees exclusive access to a shared resource
+        self.lock = asyncio.Lock()
+
+        # To download in between of songs
+        self.placeholders = []
 # endregion
 
 
@@ -106,39 +116,55 @@ async def check_admin(ctx: SlashContext) -> bool:
     log.info(f"Checking admin permissions of {ctx.author}")
 
     if ctx.author.guild_permissions.administrator:
+
         log.info(f"{ctx.author} is an admin")
 
         return True
 
     log.info(f"{ctx.author} is not an admin")
-
     await ctx.send("You are not allowed to perform this action!")
+
     return False
 
 
-async def join(ctx: SlashContext) -> bool:
-    global client
-
-    log.info("Trying to join a voice channel")
+async def check_channel(ctx: SlashContext) -> bool:
 
     # Check whether user is in a voice channel
-    if ctx.author.voice and ctx.author.voice.channel:
-        channel = ctx.author.voice.channel
-    else:
+    if not (ctx.author.voice and ctx.author.voice.channel):
+
         log.info(f"{ctx.author} is not in a voice channel")
         await ctx.send("You are not in a voice channel", hidden=True)
 
         return False
+
+    log.info(f"{ctx.author} is in a voice channel")
+    return True
+
+
+async def join(ctx: SlashContext) -> bool:
+
+    global client
+
+    log.info("Trying to join a voice channel")
+    if not await check_channel(ctx):
+
+        return False
+
+    channel = ctx.author.voice.channel
 
     # Check if bot is already in a voice channel
     if client.channel:
 
         # Move to the requested channel if in wrong channel
         if client.channel != ctx.author.voice.channel:
+
             log.info("Moving from current channel")
             await client.channel.move_to(channel)
+
         else:
+
             log.info("Already in channel")
+
     else:
 
         # Join channel
@@ -147,6 +173,7 @@ async def join(ctx: SlashContext) -> bool:
 
     # Check whether procedure was successful
     if channel == client.voice_clients[0].channel:
+
         log.info("Connected to voice channel")
 
         # Assign current voice channel to the bot
@@ -162,61 +189,54 @@ async def join(ctx: SlashContext) -> bool:
     return False
 
 
-def download_audio(url) -> bool:
+def download_audio(url) -> None:
 
-    # download audio into specific directory as a 
-    msg = f'youtube-dl -o "./test/%(title)s.%(ext)s" --extract-audio {url}'
+    # Download audio into specific test folder
+    msg = f'youtube-dl -o "./test/%(title)s.%(ext)s" --extract-audio --format best {url}'
     os.system(msg)
 
 
-def add_to_queue(url, index=0) -> None:
-    
-    global db
-    
-    # Try downloading
-    try:
-        log.info("Starting download process")
-        multi.start_process(download_audio, (url,))
-        log.info("Finished downloading")
+def get_length(url) -> int:
+    '''
+    Gets length of video using youtube-dl
+    '''
 
-    except Exception as e:
-        log.error("Failed downloading. Error: " + str(e))
-        return False
+    # Get length in format hh:mm:ss
+    output = subprocess.run(f'youtube-dl -o "./test/%(title)s.%(ext)s" --get-duration {url}', capture_output=True).stdout
+    x = output.decode("utf-8")
 
-    if index:
-        
-        index += client.queue_counter
+    # Convert to seconds
+    match = re.match(r"^((?P<h>\d{1,2}(?=\S{4,6})):)?((?P<m>\d{1,2}):)?(?P<s>\d{1,2})$", x)
+    hours = int(match.group("h") or 0)
+    minutes = int(match.group("m") or 0)
+    seconds = int(match.group("s") or 0)
+    result = hours * 3600 + minutes * 60 + seconds
+    return result
 
-        #Move queue_id of all tracks past the most recent one
-        move_entries(index)
+def convert_url(url: str) -> str:
+    '''
+    Convert youtube url to a uniform format
+    '''
 
-    insert_into_queue(index, url)
+    log.info("Converting url")
+    match = re.match(r"^https?://(?:www\.|m\.)?youtu(?:.*\.[A-Za-z0-9]{2,4}.*(?:/user/\w+#p(?:/a)?/u/\d+/|/e(?:mbed)?/|/vi?/|(watch\?)?vi?(?:=|%))|\.be/)(3D)?(?P<id>[^#&?%\s]+).*$", url)
+
+    if match:
+        result = f"https://www.youtube.com/watch?v={match.group('id')}"
+        log.info(f"Converted to: {result}")
+        return result
+
+    else:
+        log.error("Invalid url")
+        raise ValueError
 
 
-def move_entries(index) -> None:
-
-    global db
-    db.execute(" ".join(["UPDATE queuelist",
-                         "SET queue_id = queue_id + 1",
-                         f"WHERE queue_id >= {index};"]))
-
-def insert_into_queue(index, url) -> None:
-
-    global db
-    if not index:
-        query = "SELECT MAX(queue_id) FROM queuelist;"
-        if query:
-            index = 1 + db.exeute(query)[0][0]
-        else:
-            index = 1
-    
-    path = os.listdir("test")[0]
-    length = normalizeAudio("\\test\\" + path, "\\queue\\" + path)
-    path = "\\queue\\" + path
-    db.add_to_queue(index, url, path, length)
-
-def normalizeAudio(audiopath, destination_path) -> int:
-
+def normalizeAudio(audiopath: str, destination_path: str) -> None:
+    '''
+    Changes the volume of the track to a uniform one
+    Returns the length of the track in seconds
+    '''
+    log.info(f"Normalizing {audiopath}")
     # Get song with pydub
     song = AudioSegment.from_file(audiopath)
 
@@ -226,81 +246,254 @@ def normalizeAudio(audiopath, destination_path) -> int:
     song = song - quieterAudio
 
     # Export song to new path
-    match = re.search(r"\.(?P<ending>[a-zA-Z0-9]+)$", audiopath)
-    song.export(destination_path, match.group('ending'))
+    song.export(destination_path, 'webm')
 
+    # Remove old track
+    os.remove(audiopath)
+
+    log.info(f"Normalized {audiopath}")
     # Return length of song
     return song.duration_seconds
 
-def song_done(error):
+
+def song_done(error: Exception) -> None:
+    '''
+    Callback function which gets calles after a song has ended
+    Prints errors if present and starts the next track
+    '''
     global client
+
     if error:
-        log.error("An error has occurred during playing: " + str(e))
+        log.error("An error has occurred during playing: " + str(error))
     else:
         log.info("The song has ended")
-    client.done = False
+
+    # Play next track
+    check_player.start()
+
+
+async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int = 0) -> bool:
+    '''
+    Downloads audio and adds it to the queue
+    '''
+
+    global db, client
+
+    # Block all processes but one
+    await client.lock.acquire()
+
+    # Try to download
+    try:
+        
+        # Check if video is longer than 10 minutes
+        temp_length = get_length(url)
+        if temp_length > 600 and not client.waiting and not update:
+
+            # Download audio later
+            await ctx.send("The video is longer than 10 minutes, I'll download it after the current track", hidden=True)
+            path = "Placeholder"
+            length = temp_length
+            log.info(f"Video length exceeds 10 minutes: {length / 60}")
+
+        else:
+
+            # Get all files in test directory
+            files = os.listdir("test")
+
+            # Download audio
+            log.info("Starting download process")
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, download_audio, url)
+            log.info("Finished downloading")
+
+            # Get path of downloaded file by getting all files in test directory
+            # and removing all files that already were there
+            path = list(set(os.listdir("test")).difference(set(files)))[0]
+            log.info(f"Path found: {str(path)}")
+            
+            # Normalize volume of track, move it to the queue folder and get its length  
+            length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "queue\\" + path)
+
+    except Exception as e:
+
+        log.error("Failed downloading. Error: " + str(e))
+
+        client.lock.release()
+
+        return False
+
+    # Move all entries higher or equal to index
+    if index:
+
+        index += client.queue_counter
+
+        db.move_entries(index)
+
+    client.lock.release()
+
+    if update:
+
+        db.execute(f"UPDATE queuelist SET path='{path}' WHERE id={update}")
+
+        return True
+
+    else:
+        # Insert track details into database/queuelist
+        db.insert_into_queue(index, url, length, path)
+
+    if path == "Placeholder":
+
+        _id = int(db.execute(f"SELECT id FROM queuelist WHERE index = {index}")[0][0])
+        client.placeholders.append((ctx, url, _id))
+
+    if client.waiting:
+
+        client.waiting = False
+
+        check_player.start()
+
+    return True
+
+
+async def play_audio(ctx: SlashContext, url: str, index: int) -> None:
+
+    if url:
+
+        # Check if url is valid
+        try:
+            url = convert_url(url)
+
+        except ValueError:
+            await ctx.send("Invalid url")
+            return
+
+        # Download audio
+        await ctx.send("Downloading audio", hidden=True)
+
+        if await add_to_queue(ctx, url, index):
+
+            await ctx.send("Added to the queue")
+
+        else:
+
+            await ctx.send("Something went wrong")
+
+    else:
+
+        await ctx.send("Something went wrong, sorry :(")
+
 
 @slash.subcommand(base="play", subcommand_group='video', name="by_name")
-async def play_by_name(ctx: SlashContext, name, amount=1):
+async def play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: int = 0) -> None:
     '''
-    Plays music
+    Performs a youtube search with the given keywords and plays its audio
     '''
 
-    # Check if user is an admin
-    if not await check_admin(ctx):
-        return
-
-    #Join channel
+    # Join channel
     if not await join(ctx):
+
         return
 
-    # Check amount of videos
+    # Check if number of videos to search is below zero
     if amount < 1:
+
         await ctx.send("Very funny!")
 
     elif amount == 1:
-        
-        # Get url
+
+        # Perform youtube search
         url = yt.get_search(name)[0]
-        if url:
 
-            # Download audio in a multiprocess
-            await ctx.send("Downloading audio", hidden=True)
-            if add_to_queue(url):
-                await ctx.send("Added to the queue")
-            else:
-                await ctx.send("Something went wrong")
+        await play_audio(ctx, url, index)
 
-            #TODO play audio and add track to queuelist
+    # TODO Amount greater than 1
 
-        else:
-            await ctx.send("Something went wrong, sorry :(")
+
+@slash.subcommand(base="play", subcommand_group='video', name="by_url")
+async def play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
+    '''
+    Plays the youtube video with the corresponding url
+    '''
+
+    # Join channel
+    if not await join(ctx):
+
+        return
+
+    await play_audio(ctx, url, index)
 
 
 @client.event
-async def on_ready():
+async def on_ready() -> None:
+
     print(f'{client.user} has connected to Discord!')
-    # TODO:Delete past tracks
+
+    # Delete all tracks from previous uses
+    if os.path.exists('queue') and os.path.isdir('queue'):
+
+        shutil.rmtree('queue')
+
+    os.mkdir('queue')
+
+    if os.path.exists('test') and os.path.isdir('test'):
+
+        shutil.rmtree('test')
+
+    os.mkdir('test')
+
     if env_var.AUTO_HIDE == 'True':
+
         hide.hide()
-    check_player.start()
     # TODO:Change status
 
 
-@tasks.loop(seconds=1)
-async def check_player():
+@tasks.loop(count=1)
+async def check_player() -> None:
+    '''
+    Plays the next track, if all conditions are met
+    '''
+
     global client, db
+
     log.info("Checking whether to play audio")
-    if client.done and client.vc:
+
+    # Check whether connected to voice client
+    if client.vc:
+
+        # Check whether previous song has ended
         if client.vc.is_playing() or client.vc.is_paused():
+
+            log.warning("check_player was called although song hasn't ended yet")
+
             return
+
+        #TODO Test Placeholder and Index
+        # Download placeholders
+        if len(client.placeholders) > 0:
+            for ctx, url, _id in client.placeholders:
+                await add_to_queue(ctx, url, index=0, update=_id)
+                await ctx.send("Your previous track was downloaded")
+
+        # Get index of last song in queuelist
         query = "SELECT MAX(queue_id) FROM queuelist;"
         index = db.execute(query)[0][0]
-        if not index or index >= client.queue_counter:
+    
+        # Check if more songs are available
+        if index and index >= client.queue_counter:
+            
+            # Get and play next song
             path = db.execute(f"SELECT path FROM queuelist WHERE queue_id = {client.queue_counter}")[0][0]
-            source = discord.FFmpegOpusAudio(path)
+            source = discord.FFmpegOpusAudio('queue\\' + path)
             client.vc.play(source, after=song_done)
             client.queue_counter += 1
+            client.waiting = False
+
+        else:
+
+            log.info(f"No more tracks available! Current index: {index}")
+
+            # Wait for next track
+            client.waiting = True
 
 
 if __name__ == "__main__":
@@ -317,6 +510,8 @@ if __name__ == "__main__":
 
     # Create connection to lyricsgenius api
     genius = lyricsgenius.Genius(env_var.GENIUS_TOKEN)
+
+    #TODO Create direcories
 
     # Run Discord Bot
     client.run(env_var.TOKEN)

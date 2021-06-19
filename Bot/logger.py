@@ -2,8 +2,8 @@ import logging
 
 # Initialize logger
 FORMAT = '[%(levelname)s] - %(asctime)s: %(message)s'
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(handlers=[logging.FileHandler(filename='debug.log', encoding='utf-8', mode='a+')],
+                    level=logging.INFO,
                     format=FORMAT,
-                    filename='debug.log',
                     datefmt='%H:%M:%S')
 logging.info("----------------Start-----------------")
