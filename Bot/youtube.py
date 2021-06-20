@@ -102,3 +102,33 @@ class YouTube:
                 break
 
         return result
+    
+    def get_name(self, _id):
+        '''
+        
+        '''
+
+        log.info("Getting name of video: " + str(_id))
+
+        # Disable OAuthlib's HTTPS verification when running locally
+        # DO NOT leave this option enabled in production
+        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
+        # Perform search
+        try:
+            request = self.resource.videos().list(
+                part="snippet",
+                id=_id
+            )
+
+            response = request.execute()
+            
+            # Extract title
+            title = response['items'][0]['snippet']["title"]
+
+            log.info(f"The title is {title}")
+
+            return title
+
+        except Exception as e:
+            log.error("Search failed. Error: " + str(e))

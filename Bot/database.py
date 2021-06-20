@@ -36,6 +36,7 @@ class DataBase:
             log.info("Query was successfully executed. Result: " + str(result))
 
         except Exception as e:
+            result = None
             log.error("Connection to db failed. Error: " + str(e))
 
         finally:
@@ -55,14 +56,14 @@ class DataBase:
         '''
         # Create queuelist table if not existent
         query = " ".join(["CREATE TABLE IF NOT EXISTS queuelist (",
-                         "id INT AUTO_INCREMENT,",
-                         "queue_id INT NOT NULL,"
-                         "url VARCHAR(255) NOT NULL,",
-                         "path VARCHAR(255),",
-                         "length FLOAT,",
-                         "last_played DATETIME,",
-                         "PRIMARY KEY (id)",
-                         ")  ENGINE=INNODB;"])
+                          "id INT AUTO_INCREMENT,",
+                          "queue_id INT NOT NULL,"
+                          "url VARCHAR(255) NOT NULL,",
+                          "path VARCHAR(255),",
+                          "length FLOAT,",
+                          "last_played DATETIME,",
+                          "PRIMARY KEY (id)",
+                          ")  ENGINE=INNODB;"])
         self.execute(query)
 
         # Delete all entries from queuelist table
@@ -78,6 +79,7 @@ class DataBase:
         Adds a track to the queuelist table
         '''
 
+        path = path.replace("'", "''")
         query = f"INSERT INTO queuelist (queue_id, url, path, length) VALUES ({queue_id} ,'{url}', '{path}', {length});"
         self.execute(query)
 

@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from database import DataBase
 
 # Other imports
-import lyricsgenius, psutil, asyncio, subprocess
+import lyricsgenius, psutil, asyncio, subprocess, youtube_dl
 
 # Standard library imports
 import os, shutil, datetime, sys, random, time, math, re
@@ -100,6 +100,9 @@ class MyClient(discord.Client):
 
         # To download in between of songs
         self.placeholders = []
+
+        # A list of emojis representing numbers
+        self.emoji_list = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🚫']
 # endregion
 
 
@@ -192,28 +195,47 @@ async def join(ctx: SlashContext) -> bool:
 def download_audio(url) -> None:
 
     # Download audio into specific test folder
-    msg = f'youtube-dl -o "./test/%(title)s.%(ext)s" --extract-audio --format best {url}'
-    os.system(msg)
+    output = subprocess.run(f'youtube-dl -F {url}', capture_output=True).stdout
+    log.info(output.decode("utf-8"))
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': "./test/%(title)s.%(ext)s",
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'm4a',
+            'preferredquality': '192'
+        }]
+    }
+
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    #msg = f'youtube-dl -o "./test/%(title)s.%(ext)s" --extract-audio --format best {url}'
+    #os.system(msg)
 
 
-def get_length(url) -> int:
+def get_length(url, convert=True) -> int:
     '''
     Gets length of video using youtube-dl
     '''
 
+    log.info(f"Getting length of {url}")
     # Get length in format hh:mm:ss
     output = subprocess.run(f'youtube-dl -o "./test/%(title)s.%(ext)s" --get-duration {url}', capture_output=True).stdout
-    x = output.decode("utf-8")
+    result = output.decode("utf-8")
 
-    # Convert to seconds
-    match = re.match(r"^((?P<h>\d{1,2}(?=\S{4,6})):)?((?P<m>\d{1,2}):)?(?P<s>\d{1,2})$", x)
-    hours = int(match.group("h") or 0)
-    minutes = int(match.group("m") or 0)
-    seconds = int(match.group("s") or 0)
-    result = hours * 3600 + minutes * 60 + seconds
+    log.info("Result lenght: {result}")
+
+    if convert:
+        # Convert to seconds
+        match = re.match(r"^((?P<h>\d{1,2}(?=\S{4,6})):)?((?P<m>\d{1,2}):)?(?P<s>\d{1,2})$", result)
+        hours = int(match.group("h") or 0)
+        minutes = int(match.group("m") or 0)
+        seconds = int(match.group("s") or 0)
+        result = hours * 3600 + minutes * 60 + seconds
+    
     return result
 
-def convert_url(url: str) -> str:
+def convert_url(url: str, id_only: bool = False) -> str:
     '''
     Convert youtube url to a uniform format
     '''
@@ -222,6 +244,9 @@ def convert_url(url: str) -> str:
     match = re.match(r"^https?://(?:www\.|m\.)?youtu(?:.*\.[A-Za-z0-9]{2,4}.*(?:/user/\w+#p(?:/a)?/u/\d+/|/e(?:mbed)?/|/vi?/|(watch\?)?vi?(?:=|%))|\.be/)(3D)?(?P<id>[^#&?%\s]+).*$", url)
 
     if match:
+
+        if id_only:
+            return match.group('id')
         result = f"https://www.youtube.com/watch?v={match.group('id')}"
         log.info(f"Converted to: {result}")
         return result
@@ -325,7 +350,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int 
     # Move all entries higher or equal to index
     if index:
 
-        index += client.queue_counter
+        index += client.queue_counter - 1
 
         db.move_entries(index)
 
@@ -406,7 +431,76 @@ async def play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: int
 
         await play_audio(ctx, url, index)
 
-    # TODO Amount greater than 1
+    else:
+
+        await ctx.send("Searching", hidden=True)
+        global client
+        # Limit amount to 9
+        amount = 9 if amount > 9 else amount
+
+        # Get list of youtube urls
+        urls = yt.get_search(name, amount=amount)
+
+        # Create message
+        msg = "These are the results:"
+        for i, url in enumerate(urls):
+
+            # Get length of video
+            length = get_length(url, convert=False).replace("\n", "")
+
+            #Get id of video
+            _id = convert_url(url, id_only=True)
+
+            # Get name of video
+            title = yt.get_name(_id)
+
+            msg += f"\n\t{i + 1}: {title} ({length})"
+        
+        message = await ctx.send(msg)
+
+        # Add reactions so the member can choose a song
+        for i in range(amount):
+            await message.add_reaction(client.emoji_list[i])
+        
+        # Add the cancel emoji
+        await message.add_reaction(client.emoji_list[-1])
+
+        # Define criteria that must be met for the reaction to be accepted
+        def check(r, u):
+            log.info(f"Got response: {str(r)}. ({str(r) in client.emoji_list}, {ctx.author.id == u.id}, {r.message.id == message.id})")
+            return str(r) in client.emoji_list and ctx.author.id == u.id and r.message.id == message.id
+
+        # Wait for reaction
+        try:
+
+            log.info("Waiting for reaction")
+            reaction, user = await client.wait_for('reaction_add', check=check, timeout=200)
+        
+        except TimeoutError:
+
+            log.warning("No reaction has been made")
+            return
+
+        log.info(f"Rection received: {reaction} by {user}")
+        
+        # Get index of emoji in emoji_list
+        emoji_index = client.emoji_list.index(str(reaction))
+
+        # Check if it is the cancel emoji
+        if emoji_index == len(client.emoji_list) - 1:
+
+            await ctx.send("Download was cancelled")
+            return
+
+        video = urls[emoji_index]
+
+        log.info(f"{video} was chosen")
+
+        await play_audio(ctx, video, index)
+
+        
+
+
 
 
 @slash.subcommand(base="play", subcommand_group='video', name="by_url")
@@ -425,7 +519,6 @@ async def play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
 
 @client.event
 async def on_ready() -> None:
-
     print(f'{client.user} has connected to Discord!')
 
     # Delete all tracks from previous uses
@@ -482,7 +575,13 @@ async def check_player() -> None:
         if index and index >= client.queue_counter:
             
             # Get and play next song
-            path = db.execute(f"SELECT path FROM queuelist WHERE queue_id = {client.queue_counter}")[0][0]
+            while True:
+                try:
+                    path = db.execute(f"SELECT path FROM queuelist WHERE queue_id = {client.queue_counter}")[0][0]
+                    break
+                except IndexError:
+                    client.queue_counter += 1
+                
             source = discord.FFmpegOpusAudio('queue\\' + path)
             client.vc.play(source, after=song_done)
             client.queue_counter += 1
