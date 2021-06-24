@@ -102,6 +102,11 @@ play = {
     ]
 }
 
+control = {
+    "name": "control",
+    "description": "Show the control panel"
+}
+
 # For authorization, you can use either your bot token
 headers = {
     "Authorization": f"Bot {TOKEN}"
@@ -124,4 +129,5 @@ def get():
     print(r.text)
 
 
+post(control)
 input(get())

@@ -1,6 +1,5 @@
 # region imports
 
-
 # High priority imports
 import logging
 import logger
@@ -27,6 +26,8 @@ import os, shutil, datetime, sys, random, time, math, re
 import discord
 from discord.ext import tasks, commands
 from discord_slash import SlashCommand, SlashContext
+from discord_slash.utils import manage_components
+from discord_slash.model import ButtonStyle
 from youtube import YouTube
 
 # Import logger
@@ -103,6 +104,8 @@ class MyClient(discord.Client):
 
         # A list of emojis representing numbers
         self.emoji_list = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🚫']
+
+        self.custom_emojis = dict()
 # endregion
 
 
@@ -297,6 +300,41 @@ def song_done(error: Exception) -> None:
     check_player.start()
 
 
+def get_emojis() -> None:
+    '''
+    Gets custom emojis for certain methods
+    '''
+
+    global client
+
+    # Get control board emojis if available and named correctly
+    emoji_list = client.emojis
+
+    # Define defaults
+    rewind, play, forward, back, stop, skip = "⏪", "⏯", "⏩", "⏮", "⏹", "⏭"
+
+    for emoji in emoji_list:
+        if emoji.name == "botRewind":
+            rewind = emoji
+        if emoji.name == "botPlay":
+            play = emoji
+        if emoji.name == "botForward":
+            forward = emoji
+        if emoji.name == "botBack":
+            back = emoji
+        if emoji.name == "botStop":
+            stop = emoji
+        if emoji.name == "botSkip":
+            skip = emoji
+
+    client.custom_emojis["rewind"] = rewind
+    client.custom_emojis["play"] = play
+    client.custom_emojis["forward"] = forward
+    client.custom_emojis["back"] = back
+    client.custom_emojis["stop"] = stop
+    client.custom_emojis["skip"] = skip
+
+
 async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int = 0) -> bool:
     '''
     Downloads audio and adds it to the queue
@@ -309,7 +347,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int 
 
     # Try to download
     try:
-        
+
         # Check if video is longer than 10 minutes
         temp_length = get_length(url)
         if temp_length > 600 and not client.waiting and not update:
@@ -498,10 +536,6 @@ async def play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: int
 
         await play_audio(ctx, video, index)
 
-        
-
-
-
 
 @slash.subcommand(base="play", subcommand_group='video', name="by_url")
 async def play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
@@ -515,6 +549,57 @@ async def play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
         return
 
     await play_audio(ctx, url, index)
+
+
+@slash.slash(name="control")
+async def _control(ctx: SlashContext):
+    '''
+    Opens the control panel
+    '''
+
+    global client
+
+    await ctx.defer()
+
+    buttons_1 = [
+        manage_components.create_button(
+            style=ButtonStyle.blurple,
+            emoji=client.custom_emojis["rewind"],
+            custom_id="_rewind"
+        ),
+        manage_components.create_button(
+            style=ButtonStyle.green,
+            emoji=client.custom_emojis["play"],
+            custom_id="_play_pause_toggle"
+        ),
+        manage_components.create_button(
+            style=ButtonStyle.blurple,
+            emoji=client.custom_emojis["forward"],
+            custom_id="_fast_forward"
+        ),
+    ]
+    buttons_2 = [
+        manage_components.create_button(
+            style=ButtonStyle.blue,
+            emoji=client.custom_emojis["back"],
+            custom_id="_back"
+        ),
+        manage_components.create_button(
+            style=ButtonStyle.red,
+            emoji=client.custom_emojis["stop"],
+            custom_id="_stop"
+        ),
+        manage_components.create_button(
+            style=ButtonStyle.blue,
+            emoji=client.custom_emojis["skip"],
+            custom_id="_skip"
+        ),
+    ]
+
+    action_row_1 = manage_components.create_actionrow(*buttons_1)
+    action_row_2 = manage_components.create_actionrow(*buttons_2)
+
+    await ctx.send("Control board", components=[action_row_1, action_row_2])
 
 
 @client.event
@@ -537,6 +622,8 @@ async def on_ready() -> None:
     if env_var.AUTO_HIDE == 'True':
 
         hide.hide()
+    
+    get_emojis()
     # TODO:Change status
 
 
