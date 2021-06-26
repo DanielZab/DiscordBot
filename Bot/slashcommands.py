@@ -107,6 +107,68 @@ control = {
     "description": "Show the control panel"
 }
 
+skip = {
+    "name": "skip",
+    "description": "Skip a song",
+    "options": [
+        {
+            "name": "amount",
+            "description": "Amount of songs to be skipped",
+            "type": 4,
+            "required": False
+        }
+    ]
+}
+
+back = {
+    "name": "back",
+    "description": "Play a previous song",
+    "options": [
+        {
+            "name": "amount",
+            "description": "How many songs",
+            "type": 4,
+            "required": False
+        }
+    ]
+}
+
+fast_forward = {
+    "name": "fast_forward",
+    "description": "Fast forward a song",
+    "options": [
+        {
+            "name": "amount",
+            "description": "How many seconds",
+            "type": 4,
+            "required": False
+        }
+    ]
+}
+
+rewind = {
+    "name": "rewind",
+    "description": "Rewind a song",
+    "options": [
+        {
+            "name": "amount",
+            "description": "How many seconds",
+            "type": 4,
+            "required": False
+        }
+    ]
+}
+
+pause = {
+    "name": "pause",
+    "description": "Pause or resume a song"
+}
+
+stop = {
+    "name": "stop",
+    "description": "Stop the player and remove all songs"
+}
+
 # For authorization, you can use either your bot token
 headers = {
     "Authorization": f"Bot {TOKEN}"
@@ -129,5 +191,9 @@ def get():
     print(r.text)
 
 
-post(control)
+post(stop)
+post(pause)
+post(rewind)
+post(fast_forward)
+post(back)
 input(get())

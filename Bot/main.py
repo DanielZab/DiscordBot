@@ -16,6 +16,12 @@ from dotenv import load_dotenv
 # Database connection
 from database import DataBase
 
+# File Manager
+import file_manager
+
+# Control board commands
+import control
+
 # Other imports
 import lyricsgenius, psutil, asyncio, subprocess, youtube_dl
 
@@ -25,10 +31,9 @@ import os, shutil, datetime, sys, random, time, math, re
 # Google and Discord api imports
 import discord
 from discord.ext import tasks, commands
-from discord_slash import SlashCommand, SlashContext
-from discord_slash.utils import manage_components
-from discord_slash.model import ButtonStyle
+from discord_slash import SlashCommand, SlashContext, manage_components, ComponentContext, ButtonStyle
 from youtube import YouTube
+from typing import Union
 
 # Import logger
 log = logging.getLogger(__name__)
@@ -85,7 +90,10 @@ class MyClient(discord.Client):
     def __init__(self) -> None:
 
         super().__init__()
-
+        self.setup()
+    
+    def setup(self):
+        
         # Create containers for current voice channel and its name
         self.channel = None
         self.vc = None
@@ -105,7 +113,13 @@ class MyClient(discord.Client):
         # A list of emojis representing numbers
         self.emoji_list = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🚫']
 
+        # Container for all emojis
         self.custom_emojis = dict()
+
+        # Indicates how long a song has been played
+        self.song_duration = 0
+
+
 # endregion
 
 
@@ -296,6 +310,8 @@ def song_done(error: Exception) -> None:
     else:
         log.info("The song has ended")
 
+    client.queue_counter += 1
+
     # Play next track
     check_player.start()
 
@@ -388,7 +404,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int 
     # Move all entries higher or equal to index
     if index:
 
-        index += client.queue_counter - 1
+        index += client.queue_counter
 
         db.move_entries(index)
 
@@ -535,6 +551,7 @@ async def play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: int
         log.info(f"{video} was chosen")
 
         await play_audio(ctx, video, index)
+        # TODO Index must not be higher than max queue_id
 
 
 @slash.subcommand(base="play", subcommand_group='video', name="by_url")
@@ -565,34 +582,34 @@ async def _control(ctx: SlashContext):
         manage_components.create_button(
             style=ButtonStyle.blurple,
             emoji=client.custom_emojis["rewind"],
-            custom_id="_rewind"
+            custom_id="rewind"
         ),
         manage_components.create_button(
             style=ButtonStyle.green,
             emoji=client.custom_emojis["play"],
-            custom_id="_play_pause_toggle"
+            custom_id="play_pause_toggle"
         ),
         manage_components.create_button(
             style=ButtonStyle.blurple,
             emoji=client.custom_emojis["forward"],
-            custom_id="_fast_forward"
+            custom_id="fast_forward"
         ),
     ]
     buttons_2 = [
         manage_components.create_button(
             style=ButtonStyle.blue,
             emoji=client.custom_emojis["back"],
-            custom_id="_back"
+            custom_id="back"
         ),
         manage_components.create_button(
             style=ButtonStyle.red,
             emoji=client.custom_emojis["stop"],
-            custom_id="_stop"
+            custom_id="stop"
         ),
         manage_components.create_button(
             style=ButtonStyle.blue,
             emoji=client.custom_emojis["skip"],
-            custom_id="_skip"
+            custom_id="skip"
         ),
     ]
 
@@ -602,30 +619,85 @@ async def _control(ctx: SlashContext):
     await ctx.send("Control board", components=[action_row_1, action_row_2])
 
 
+@slash.slash(name="skip")
+async def _skip(ctx: Union[SlashContext, ComponentContext], amount: int = 1) -> None:
+    global client, db
+    await control_board.skip(client, db, ctx, amount=amount)
+
+
+@slash.slash(name="back")
+async def _back(ctx: Union[SlashContext, ComponentContext], amount: int = 1) -> None:
+    global client, db
+    await control_board.back(client, db, ctx, amount=amount)
+
+
+@slash.slash(name="pause")
+async def _pause(ctx: Union[SlashContext, ComponentContext]) -> None:
+    global client, db
+    await control_board.pause(client, db, ctx)
+
+
+@slash.slash(name="fast_forward")
+async def _fast_forward(ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
+    global client, db
+    await control_board.fast_forward(client, db, ctx, amount=amount)
+
+
+@slash.slash(name="rewind")
+async def _rewind(ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
+    global client, db
+    await control_board.rewind(client, db, ctx, amount=amount)
+
+
+@slash.slash(name="stop")
+async def _stop(ctx: Union[SlashContext, ComponentContext]):
+    global client, db
+    await control_board.stop(ctx)
+
 @client.event
 async def on_ready() -> None:
     print(f'{client.user} has connected to Discord!')
 
     # Delete all tracks from previous uses
-    if os.path.exists('queue') and os.path.isdir('queue'):
-
-        shutil.rmtree('queue')
-
-    os.mkdir('queue')
-
-    if os.path.exists('test') and os.path.isdir('test'):
-
-        shutil.rmtree('test')
-
-    os.mkdir('test')
+    file_manager.reset_directories()
 
     if env_var.AUTO_HIDE == 'True':
 
         hide.hide()
     
     get_emojis()
+
+    update_duration.start()
     # TODO:Change status
 
+
+@client.event
+async def on_component(ctx: ComponentContext):
+
+    global client, db
+
+    log.info(f"Received component input with id: {ctx.custom_id}")
+
+    # Assign a function to every custom_id
+    buttons = {
+        "skip": control_board.skip,
+        "fast_forward": control_board.fast_forward,
+        "stop": control_board.stop,
+        "back": control_board.back,
+        "rewind": control_board.rewind,
+        "play_pause_toggle": control_board.pause
+    }
+
+    # Get function from custom_id of component
+    try:
+        function = buttons[ctx.custom_id]
+
+    except Exception as e:
+        log.error("No function assigned! " + str(e))
+        await ctx.send("Something went wrong!", hidden=True)
+        return
+    
+    await function(client, db, ctx)
 
 @tasks.loop(count=1)
 async def check_player() -> None:
@@ -647,7 +719,6 @@ async def check_player() -> None:
 
             return
 
-        #TODO Test Placeholder and Index
         # Download placeholders
         if len(client.placeholders) > 0:
             for ctx, url, _id in client.placeholders:
@@ -670,8 +741,14 @@ async def check_player() -> None:
                     client.queue_counter += 1
                 
             source = discord.FFmpegOpusAudio('queue\\' + path)
+
+            # Reset song timer
+            client.song_duration = 0
+
+            # Play song
             client.vc.play(source, after=song_done)
-            client.queue_counter += 1
+
+            # Stop waiting if was waiting
             client.waiting = False
 
         else:
@@ -681,6 +758,15 @@ async def check_player() -> None:
             # Wait for next track
             client.waiting = True
 
+
+@tasks.loop(seconds=0.5)
+async def update_duration():
+
+    global client
+
+    # Add half a second to the duration timer if the player is currently playing
+    if client.vc and client.vc.is_playing():
+        client.song_duration += 0.5
 
 if __name__ == "__main__":
 
@@ -697,7 +783,10 @@ if __name__ == "__main__":
     # Create connection to lyricsgenius api
     genius = lyricsgenius.Genius(env_var.GENIUS_TOKEN)
 
-    #TODO Create direcories
+    # Create control board commands manager
+    control_board = control.ControlBoard()
+
+    # TODO Create directories
 
     # Run Discord Bot
     client.run(env_var.TOKEN)
