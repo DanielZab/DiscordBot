@@ -742,6 +742,7 @@ async def check_player() -> None:
     Plays the next track, if all conditions are met
     '''
 
+    # TODO test placeholders
     global client, db
 
     log.info("Checking whether to play audio")
@@ -749,25 +750,28 @@ async def check_player() -> None:
     # Check whether connected to voice client
     if client.vc:
 
-        # Check whether previous song has ended
-        if client.vc.is_playing() or client.vc.is_paused():
+        # Bypass steps if boption available
+        if not client.boption:
 
-            log.warning("check_player was called although song hasn't ended yet")
+            # Check whether previous song has ended
+            if client.vc.is_playing() or client.vc.is_paused():
 
-            return
+                log.warning("check_player was called although song hasn't ended yet")
 
-        # Download placeholders
-        if len(client.placeholders) > 0:
-            for ctx, url, _id in client.placeholders:
-                await add_to_queue(ctx, url, index=0, update=_id)
-                await ctx.send("Your previous track was downloaded")
+                return
 
-        # Get index of last song in queuelist
-        query = "SELECT MAX(queue_id) FROM queuelist;"
-        index = db.execute(query)[0][0]
+            # Download placeholders
+            if len(client.placeholders) > 0:
+                for ctx, url, _id in client.placeholders:
+                    await add_to_queue(ctx, url, index=0, update=_id)
+                    await ctx.send("Your previous track was downloaded")
+
+            # Get index of last song in queuelist
+            query = "SELECT MAX(queue_id) FROM queuelist;"
+            index = db.execute(query)[0][0]
     
-        # Check if more songs are available
-        if index and index >= client.queue_counter:
+        # Check if more songs are available. bypass if boption available
+        if client.boption or (index and index >= client.queue_counter):
             
             # Get and play next song
             while True:
@@ -783,6 +787,7 @@ async def check_player() -> None:
                     before_options=client.boption
                 )
                 client.boption = None
+
             else:
                 source = discord.FFmpegOpusAudio('queue\\' + path)
 
@@ -811,7 +816,6 @@ async def update_duration():
 
     # Add half a second to the duration timer if the player is currently playing
     if client.vc and client.vc.is_playing():
-        print(client.song_duration)
         client.set_duration_timer(client.song_duration + 0.5)
 
 if __name__ == "__main__":

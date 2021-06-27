@@ -135,7 +135,6 @@ class ControlBoard:
         log.info(f"Rewinded {amount} seconds")
         await ctx.send("Rewind complete", hidden=True)
 
-        # TODO cleaner transition
 
     async def stop(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext]):
 
@@ -149,3 +148,5 @@ class ControlBoard:
 
         log.info("Player was stopped")
         await ctx.send("The player was stopped")
+
+        # TODO fix stop
