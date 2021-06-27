@@ -92,7 +92,7 @@ class MyClient(discord.Client):
         super().__init__()
         self.setup()
     
-    def setup(self):
+    def setup(self) -> None:
         
         # Create containers for current voice channel and its name
         self.channel = None
@@ -119,6 +119,33 @@ class MyClient(discord.Client):
         # Indicates how long a song has been played
         self.song_duration = 0
 
+        # Before options for the player, can specify different things such as where to start
+        # or playback speed
+        self.boption = None
+
+    def vc_check(self) -> bool:
+        '''
+        Checks whether player is paused/playing a song
+        '''
+        return self.vc and (self.vc.is_paused() or self.vc.is_playing())
+    
+    def play_with_boption(self, boption) -> None:
+        '''
+        Resets the current track with the boption settings
+        '''
+
+        if self.vc_check():
+        
+            self.queue_counter -= 1
+            self.boption = boption
+            self.vc.stop()
+            return True
+        
+        else:
+            return False
+
+    def set_duration_timer(self, s: Union[float, int]):
+        self.song_duration = s
 
 # endregion
 
@@ -126,87 +153,6 @@ class MyClient(discord.Client):
 # Assign slash command client
 client = MyClient()
 slash = SlashCommand(client)
-
-
-async def check_admin(ctx: SlashContext) -> bool:
-    '''
-    Checks if a user has admin permissions
-    '''
-
-    log.info(f"Checking admin permissions of {ctx.author}")
-
-    if ctx.author.guild_permissions.administrator:
-
-        log.info(f"{ctx.author} is an admin")
-
-        return True
-
-    log.info(f"{ctx.author} is not an admin")
-    await ctx.send("You are not allowed to perform this action!")
-
-    return False
-
-
-async def check_channel(ctx: SlashContext) -> bool:
-
-    # Check whether user is in a voice channel
-    if not (ctx.author.voice and ctx.author.voice.channel):
-
-        log.info(f"{ctx.author} is not in a voice channel")
-        await ctx.send("You are not in a voice channel", hidden=True)
-
-        return False
-
-    log.info(f"{ctx.author} is in a voice channel")
-    return True
-
-
-async def join(ctx: SlashContext) -> bool:
-
-    global client
-
-    log.info("Trying to join a voice channel")
-    if not await check_channel(ctx):
-
-        return False
-
-    channel = ctx.author.voice.channel
-
-    # Check if bot is already in a voice channel
-    if client.channel:
-
-        # Move to the requested channel if in wrong channel
-        if client.channel != ctx.author.voice.channel:
-
-            log.info("Moving from current channel")
-            await client.channel.move_to(channel)
-
-        else:
-
-            log.info("Already in channel")
-
-    else:
-
-        # Join channel
-        log.info("Joining channel")
-        await channel.connect(reconnect=True, timeout=90)
-
-    # Check whether procedure was successful
-    if channel == client.voice_clients[0].channel:
-
-        log.info("Connected to voice channel")
-
-        # Assign current voice channel to the bot
-        client.channel = channel
-        client.vc = client.voice_clients[0]
-
-        return True
-
-    log.error(f"Failed to connect. Channel={channel}, "
-              "vc={client.voice_clients[0]}")
-    await ctx.send("Something went wrong :/", hidden=True)
-
-    return False
 
 
 def download_audio(url) -> None:
@@ -349,6 +295,97 @@ def get_emojis() -> None:
     client.custom_emojis["back"] = back
     client.custom_emojis["stop"] = stop
     client.custom_emojis["skip"] = skip
+
+
+def format_time_ffmpeg(s: int) -> str:
+    '''
+    Convert seconds to a ffmpeg time format
+    '''
+    hours, s = divmod(s, 3600)
+    mins, sec = divmod(s, 60)
+
+    return "{:02d}:{:02d}:{:02d}".format(hours, mins, sec)
+
+
+async def check_admin(ctx: SlashContext) -> bool:
+    '''
+    Checks if a user has admin permissions
+    '''
+
+    log.info(f"Checking admin permissions of {ctx.author}")
+
+    if ctx.author.guild_permissions.administrator:
+
+        log.info(f"{ctx.author} is an admin")
+
+        return True
+
+    log.info(f"{ctx.author} is not an admin")
+    await ctx.send("You are not allowed to perform this action!")
+
+    return False
+
+
+async def check_channel(ctx: SlashContext) -> bool:
+
+    # Check whether user is in a voice channel
+    if not (ctx.author.voice and ctx.author.voice.channel):
+
+        log.info(f"{ctx.author} is not in a voice channel")
+        await ctx.send("You are not in a voice channel", hidden=True)
+
+        return False
+
+    log.info(f"{ctx.author} is in a voice channel")
+    return True
+
+
+async def join(ctx: SlashContext) -> bool:
+
+    global client
+
+    log.info("Trying to join a voice channel")
+    if not await check_channel(ctx):
+
+        return False
+
+    channel = ctx.author.voice.channel
+
+    # Check if bot is already in a voice channel
+    if client.channel:
+
+        # Move to the requested channel if in wrong channel
+        if client.channel != ctx.author.voice.channel:
+
+            log.info("Moving from current channel")
+            await client.channel.move_to(channel)
+
+        else:
+
+            log.info("Already in channel")
+
+    else:
+
+        # Join channel
+        log.info("Joining channel")
+        await channel.connect(reconnect=True, timeout=90)
+
+    # Check whether procedure was successful
+    if channel == client.voice_clients[0].channel:
+
+        log.info("Connected to voice channel")
+
+        # Assign current voice channel to the bot
+        client.channel = channel
+        client.vc = client.voice_clients[0]
+
+        return True
+
+    log.error(f"Failed to connect. Channel={channel}, "
+              "vc={client.voice_clients[0]}")
+    await ctx.send("Something went wrong :/", hidden=True)
+
+    return False
 
 
 async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int = 0) -> bool:
@@ -739,11 +776,19 @@ async def check_player() -> None:
                     break
                 except IndexError:
                     client.queue_counter += 1
-                
-            source = discord.FFmpegOpusAudio('queue\\' + path)
+            
+            if client.boption:
+                source = discord.FFmpegOpusAudio(
+                    'queue\\' + path,
+                    before_options=client.boption
+                )
+                client.boption = None
+            else:
+                source = discord.FFmpegOpusAudio('queue\\' + path)
+
 
             # Reset song timer
-            client.song_duration = 0
+            client.set_duration_timer(0)
 
             # Play song
             client.vc.play(source, after=song_done)
@@ -766,7 +811,8 @@ async def update_duration():
 
     # Add half a second to the duration timer if the player is currently playing
     if client.vc and client.vc.is_playing():
-        client.song_duration += 0.5
+        print(client.song_duration)
+        client.set_duration_timer(client.song_duration + 0.5)
 
 if __name__ == "__main__":
 

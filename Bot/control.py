@@ -1,3 +1,4 @@
+import asyncio
 import main, database
 import discord
 import logging
@@ -80,23 +81,71 @@ class ControlBoard:
             await ctx.send("No song playing!", hidden=True)
 
     async def fast_forward(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
+        '''
+        Fasts forward a song. Skips 10 seconds by default
+        '''
+        # Get desired timeframe
+        destination_time = int(client.song_duration + amount)
+        print(destination_time)
 
-        await ctx.send(client.song_duration)
-        # TODO fast forward
+        await ctx.defer()
+
+        # Set player configuration
+        boption = "-nostdin -ss {}".format(main.format_time_ffmpeg(destination_time))
+
+        # Fast forward
+        if not client.play_with_boption(boption):
+            log.warning("Fast forward was called although not playing audio")
+            await ctx.send("Not playing audio!", hidden=True)
+            return
+
+        # Wait until playing the next song
+        while not (client.vc.is_playing() or client.vc.is_paused()):
+            await asyncio.sleep(0.1)
+
+        client.set_duration_timer(destination_time)
+        
+        log.info(f"Skipped {amount} seconds")
+        await ctx.send("Fast forward complete", hidden=True)
 
     async def rewind(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
+        '''
+        Rewinds a song. Rewinds 10 seconds by default
+        '''
+        # Get desired timeframe
+        destination_time = int(client.song_duration - amount)
 
-        await ctx.send(client.song_duration)
-        # TODO rewind
+        # Set player configuration
+        boption = "-nostdin -ss {}".format(main.format_time_ffmpeg(destination_time))
+
+        await ctx.defer()
+
+        # Fast forward
+        if not client.play_with_boption(boption):
+            log.warning("Rewind was called although not playing audio")
+            await ctx.send("Not playing audio!", hidden=True)
+            return
+
+        # Wait until playing the next song
+        while not (client.vc.is_playing() or client.vc.is_paused()):
+            await asyncio.sleep(0.1)
+
+        client.set_duration_timer(destination_time)
+
+        log.info(f"Rewinded {amount} seconds")
+        await ctx.send("Rewind complete", hidden=True)
+
+        # TODO cleaner transition
 
     async def stop(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext]):
 
         db.setup()
         file_manager.reset_directories()
 
-        if client.vc and (client.vc.is_playing() or client.vc.is_paused()):
+        if client.vc_check():
             client.stop()
         
         client.setup()
 
+        log.info("Player was stopped")
         await ctx.send("The player was stopped")
