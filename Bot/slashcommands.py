@@ -9,7 +9,7 @@ url = "https://discord.com/api/v8/applications/697051009138163732/guilds/4561090
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-json = {
+test = {
     "name": "test",
     "description": "Send a random adorable animal photo",
     "options": [
@@ -48,7 +48,7 @@ play = {
     "options": [
         {
             "name": "video",
-            "description": "Url or name of the video",
+            "description": "Adds a single video to the queue",
             "type": 2,
             "options": [
                 {
@@ -95,9 +95,32 @@ play = {
             ]
         },
         {
-            "name": "postion",
-            "description": "The position in the queuelist.",
-            "type": 4
+            "name": "playlist",
+            "description": "Adds the contents of a playlist to the queue",
+            "type": 1,
+            "options": [
+                {
+                    "name": "url",
+                    "description": "The url of the playlist",
+                    "type": 3,
+                    "required": True
+                },
+                {
+                    "name": "index",
+                    "description": "At which position in queue",
+                    "type": 4
+                },
+                {
+                    "name": "limit",
+                    "description": "How many songs do you want to add to queue",
+                    "type": 4
+                },
+                {
+                    "name": "randomize",
+                    "description": "Randomize the order of songs",
+                    "type": 5
+                }
+            ]
         }
     ]
 }
@@ -169,6 +192,24 @@ stop = {
     "description": "Stop the player and remove all songs"
 }
 
+queue = {
+    "name": "queue",
+    "description": "Get the queuelist",
+    "options": [
+        {
+            "name": "amount",
+            "description": "How many entries do you want to see",
+            "type": 4,
+            "required": False
+        }
+    ]
+}
+
+_quit = {
+    "name": "quit",
+    "description": "Close the bot"
+}
+
 # For authorization, you can use either your bot token
 headers = {
     "Authorization": f"Bot {TOKEN}"
@@ -191,9 +232,5 @@ def get():
     print(r.text)
 
 
-post(stop)
-post(pause)
-post(rewind)
-post(fast_forward)
-post(back)
+post(play)
 input(get())

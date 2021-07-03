@@ -35,11 +35,11 @@ class ControlBoard:
         # Limit maximum amount to index
         if not amount <= index:
             amount = index
-        
+
         client.queue_counter += (amount - 1)
         client.vc.stop()
 
-        await ctx.send("Skipped!", hidden=True)
+        await ctx.send("Skipped!", delete_after=3)
 
     async def back(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 1) -> None:
 
@@ -47,7 +47,7 @@ class ControlBoard:
         index = client.queue_counter - 1
 
         # Check if there are previous songs
-        if index < 1:
+        if index < 1 and not (amount == 1 and client.vc_check() and client.song_timer >= 3):
             log.warning("No previous song!")
             await ctx.send("No previous song!", hidden=True)
             return
@@ -55,14 +55,25 @@ class ControlBoard:
         # Limit maximum amount to index
         if not amount <= index:
             amount = index
-        
+
         # Select desired song index
-        client.queue_counter -= (amount + 1)
+        client.queue_counter -= (amount)
 
-        # Stop current song
-        client.vc.stop()
+        if not client.waiting:
+            # Don't skip if only skipping one and playing longer than 3 seconds
+            # This causes the song to repeat instead of going to the previous song
+            if not (amount == 1 and client.song_timer < 3):
+                client.queue_counter -= 1
 
-        await ctx.send("Playing previous track!", hidden=True)
+        await ctx.send("Gone back!", delete_after=3)
+
+        # Stop current song if playing
+        if client.vc_check():
+            client.vc.stop()
+
+        # Otherwise start player manually
+        else:
+            client.start_player()
 
     async def pause(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext]) -> None:
 
@@ -70,11 +81,11 @@ class ControlBoard:
 
         if client.vc and client.vc.is_paused():
             client.vc.resume()
-            await ctx.send("Resumed!", hidden=True)
+            await ctx.send("Resumed!", delete_after=3)
 
         elif client.vc and client.vc.is_playing():
             client.vc.pause()
-            await ctx.send("Paused!", hidden=True)
+            await ctx.send("Paused!", delete_after=3)
 
         else:
             log.warning("Could not pause, currently no track playing")
@@ -84,11 +95,15 @@ class ControlBoard:
         '''
         Fasts forward a song. Skips 10 seconds by default
         '''
-        # Get desired timeframe
-        destination_time = int(client.song_duration + amount)
-        print(destination_time)
 
         await ctx.defer()
+
+        # Get desired timeframe
+        destination_time = int(client.song_timer + amount)
+
+        # Change destination time to one second before end of song if skipped too much
+        if client.current_track_duration <= destination_time:
+            destination_time = client.current_track_duration - 1
 
         # Set player configuration
         boption = "-nostdin -ss {}".format(main.format_time_ffmpeg(destination_time))
@@ -96,29 +111,34 @@ class ControlBoard:
         # Fast forward
         if not client.play_with_boption(boption):
             log.warning("Fast forward was called although not playing audio")
-            await ctx.send("Not playing audio!", hidden=True)
+            await ctx.send("Not playing audio!")
             return
 
         # Wait until playing the next song
         while not (client.vc.is_playing() or client.vc.is_paused()):
             await asyncio.sleep(0.1)
 
-        client.set_duration_timer(destination_time)
-        
+        client.song_timer = destination_time
+
         log.info(f"Skipped {amount} seconds")
-        await ctx.send("Fast forward complete", hidden=True)
+        await ctx.send("Fast forward complete", delete_after=3)
 
     async def rewind(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
         '''
         Rewinds a song. Rewinds 10 seconds by default
         '''
+
+        await ctx.defer()
+
         # Get desired timeframe
-        destination_time = int(client.song_duration - amount)
+        destination_time = int(client.song_timer - amount)
+
+        # If destination time is negative, start playing at start of song
+        if destination_time < 0:
+            destination_time = 0
 
         # Set player configuration
         boption = "-nostdin -ss {}".format(main.format_time_ffmpeg(destination_time))
-
-        await ctx.defer()
 
         # Fast forward
         if not client.play_with_boption(boption):
@@ -130,23 +150,30 @@ class ControlBoard:
         while not (client.vc.is_playing() or client.vc.is_paused()):
             await asyncio.sleep(0.1)
 
-        client.set_duration_timer(destination_time)
+        client.song_timer = destination_time
 
         log.info(f"Rewinded {amount} seconds")
-        await ctx.send("Rewind complete", hidden=True)
+        await ctx.send("Rewind complete", delete_after=3)
 
-
-    async def stop(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext]):
+    async def stop(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], silent=False):
 
         db.setup()
-        file_manager.reset_directories()
 
-        if client.vc_check():
-            client.stop()
-        
+        client.stop()
+
+        if client.vc:
+
+            await client.vc.disconnect()
+
+        await client.delete_control_board_messages()
+
+        await client.delete_queuelist_messages()
+
         client.setup()
 
-        log.info("Player was stopped")
-        await ctx.send("The player was stopped")
+        file_manager.reset_directories()
 
-        # TODO fix stop
+        log.info("Player was stopped")
+
+        if not silent:
+            await ctx.send("The player was stopped")

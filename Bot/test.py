@@ -1,1 +1,4 @@
-print(3<8<5)
+def hello():
+    print(x)
+x = 3
+hello()

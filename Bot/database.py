@@ -106,3 +106,18 @@ class DataBase:
                 index = 1
         
         self.add_to_queue(index, url, path, length)
+    
+    def get_max_queue_id(self) -> int:
+        log.info("Getting maximum queue_id")
+
+        query = "SELECT MAX(queue_id) FROM queuelist;"
+        index = self.execute(query)[0][0]
+
+        if not index:
+            index = 0
+
+        log.info("Maximum queue_id: " + str(index))
+        return index
+
+
+        

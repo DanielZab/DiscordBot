@@ -1,6 +1,7 @@
 import googleapiclient.discovery
 import os
 import logging
+import asyncio
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class YouTube:
                                                         self.api_version, 
                                                         developerKey=self.key)
 
-    def get_search(self, keyword, amount=1, search_type="video") -> list:
+    async def get_search(self, keyword, amount=1, search_type="video") -> list:
         '''
         Perform a Youtube search
         '''
@@ -43,7 +44,8 @@ class YouTube:
 
         # Perform search
         try:
-            response = request.execute()
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, request.execute)
             
             # Extract urls
             for i in range(0, amount):
@@ -57,12 +59,12 @@ class YouTube:
         finally:
             return url_list
 
-    def get_playlist_contents(self, url) -> list:
+    async def get_playlist_contents(self, _id) -> list:
         '''
         Get contents of a Youtube playlist
         '''
 
-        log.info("Getting contents of playlist. Url: " + str(url))
+        log.info("Getting contents of playlist. Id: " + str(_id))
 
         # Disable OAuthlib's HTTPS verification when running locally.
         # DO NOT leave this option enabled in production.
@@ -78,12 +80,15 @@ class YouTube:
                 part="snippet",
                 maxResults=50,
                 pageToken=p_token,
-                playlistId=url
+                playlistId=_id
             )
 
             # Get contents
             try:
-                response = request.execute()
+
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(None, request.execute)
+
             except Exception as e:
                 log.error("Couldn't get contents. Error: " + str(e))
                 break
