@@ -1,7 +1,9 @@
+from typing import final
 from discord import player
 import requests
 from dotenv import load_dotenv
 import os
+import json
 
 
 url = "https://discord.com/api/v8/applications/697051009138163732/guilds/456109062833176598/commands"
@@ -97,28 +99,66 @@ play = {
         {
             "name": "playlist",
             "description": "Adds the contents of a playlist to the queue",
-            "type": 1,
+            "type": 2,
             "options": [
                 {
-                    "name": "url",
-                    "description": "The url of the playlist",
-                    "type": 3,
-                    "required": True
-                },
+                    "name": "by_url",
+                    "description": "Play playlist by its url",
+                    "type": 1,
+                    "options": [
+                        {
+                            "name": "url",
+                            "description": "The url of the playlist",
+                            "type": 3,
+                            "required": True
+                        },
+                        {
+                            "name": "index",
+                            "description": "At which position in queue",
+                            "type": 4
+                        },
+                        {
+                            "name": "limit",
+                            "description": "How many songs do you want to add to queue",
+                            "type": 4
+                        },
+                        {
+                            "name": "randomize",
+                            "description": "Randomize the order of songs",
+                            "type": 5
+                        }
+                    ]
+                }, 
                 {
-                    "name": "index",
-                    "description": "At which position in queue",
-                    "type": 4
-                },
-                {
-                    "name": "limit",
-                    "description": "How many songs do you want to add to queue",
-                    "type": 4
-                },
-                {
-                    "name": "randomize",
-                    "description": "Randomize the order of songs",
-                    "type": 5
+                    "name": "by_name",
+                    "description": "Play playlist by its name",
+                    "type": 1,
+                    "options": [
+                        {
+                            "name": "name",
+                            "description": "The name of the playlist",
+                            "type": 3,
+                            "required": True,
+                            "choices": [
+
+                            ]
+                        },
+                        {
+                            "name": "index",
+                            "description": "At which position in queue",
+                            "type": 4
+                        },
+                        {
+                            "name": "limit",
+                            "description": "How many songs do you want to add to queue",
+                            "type": 4
+                        },
+                        {
+                            "name": "randomize",
+                            "description": "Randomize the order of songs",
+                            "type": 5
+                        }
+                    ]
                 }
             ]
         }
@@ -205,9 +245,35 @@ queue = {
     ]
 }
 
+create = {
+    "name": "create",
+    "description": "Create something",
+    "options": [
+        {
+            "name": "playlist",
+            "description": "Create a playlist (Admin only)",
+            "type": 1,
+            "options": [
+                {
+                    "name": "url",
+                    "description": "The url of the playlist",
+                    "type": 3,
+                    "required": True
+                },
+                {
+                    "name": "name",
+                    "description": "The name of the playlist",
+                    "type": 3,
+                    "required": True
+                }
+            ]
+        }
+    ]
+}
+
 _quit = {
     "name": "quit",
-    "description": "Close the bot"
+    "description": "Close the bot (Admin only)"
 }
 
 # For authorization, you can use either your bot token
@@ -224,13 +290,145 @@ def post(js):
     print(r.content)
 
 
-def get():
+def get() -> str:
     global url
     global headers
     global json
     r = requests.get(url, headers=headers)
-    print(r.text)
+    return r.text
 
 
-post(play)
-input(get())
+def update_play_command(choice) -> None:
+    commands = json.loads(get())
+    for command in commands:
+        if command["name"] == "test":
+            if command["name"] == "play":
+                try:
+                    playlists = command['options'][1]['options'][1]['options'][0]['choice']
+                except KeyError:
+                    playlists = []
+                finally:
+                    playlists.append({'name': choice, 'value': choice})
+                play = {
+                    "name": "play",
+                    "description": "Plays music. Note: You must be in a channel!",
+                    "options": [
+                        {
+                            "name": "video",
+                            "description": "Adds a single video to the queue",
+                            "type": 2,
+                            "options": [
+                                {
+                                    "name": "by_name",
+                                    "description": "Searches for a video in Youtube by its name",
+                                    "type": 1,
+                                    "options": [
+                                        {
+                                            "name": "name",
+                                            "description": "The name of the video",
+                                            "type": 3,
+                                            "required": True
+                                        },
+                                        {
+                                            "name": "amount",
+                                            "description": "The number of results. Default value is 1",
+                                            "type": 4
+                                        },
+                                        {
+                                            "name": "index",
+                                            "description": "At which position in queue",
+                                            "type": 4
+                                        }
+                                    ]
+                                },
+                                {
+                                    "name": "by_url",
+                                    "description": "Searches for a video in Youtube by its url",
+                                    "type": 1,
+                                    "options": [
+                                        {
+                                            "name": "url",
+                                            "description": "The url of the video",
+                                            "type": 3,
+                                            "required": True
+                                        },
+                                        {
+                                            "name": "index",
+                                            "description": "At which position in queue",
+                                            "type": 4
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "name": "playlist",
+                            "description": "Adds the contents of a playlist to the queue",
+                            "type": 2,
+                            "options": [
+                                {
+                                    "name": "by_url",
+                                    "description": "Play playlist by its url",
+                                    "type": 1,
+                                    "options": [
+                                        {
+                                            "name": "url",
+                                            "description": "The url of the playlist",
+                                            "type": 3,
+                                            "required": True
+                                        },
+                                        {
+                                            "name": "index",
+                                            "description": "At which position in queue",
+                                            "type": 4
+                                        },
+                                        {
+                                            "name": "limit",
+                                            "description": "How many songs do you want to add to queue",
+                                            "type": 4
+                                        },
+                                        {
+                                            "name": "randomize",
+                                            "description": "Randomize the order of songs",
+                                            "type": 5
+                                        }
+                                    ]
+                                }, 
+                                {
+                                    "name": "by_name",
+                                    "description": "Play playlist by its name",
+                                    "type": 1,
+                                    "options": [
+                                        {
+                                            "name": "name",
+                                            "description": "The name of the playlist",
+                                            "type": 3,
+                                            "required": True,
+                                            "choices": playlists
+                                        },
+                                        {
+                                            "name": "index",
+                                            "description": "At which position in queue",
+                                            "type": 4
+                                        },
+                                        {
+                                            "name": "limit",
+                                            "description": "How many songs do you want to add to queue",
+                                            "type": 4
+                                        },
+                                        {
+                                            "name": "randomize",
+                                            "description": "Randomize the order of songs",
+                                            "type": 5
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+                post(play)
+
+
+if __name__ == "__main__":
+    post(create)

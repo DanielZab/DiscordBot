@@ -1,3 +1,4 @@
+from sys import intern
 import mysql.connector
 import logging
 import time, os
@@ -57,11 +58,10 @@ class DataBase:
         # Create queuelist table if not existent
         query = " ".join(["CREATE TABLE IF NOT EXISTS queuelist (",
                           "id INT AUTO_INCREMENT,",
-                          "queue_id INT NOT NULL,"
+                          "queue_id INT NOT NULL",
                           "url VARCHAR(255) NOT NULL,",
                           "path VARCHAR(255),",
                           "length FLOAT,",
-                          "last_played DATETIME,",
                           "PRIMARY KEY (id)",
                           ")  ENGINE=INNODB;"])
         self.execute(query)
@@ -74,7 +74,7 @@ class DataBase:
         query = "ALTER TABLE queuelist AUTO_INCREMENT = 1;"
         self.execute(query)
 
-    def add_to_queue(self, queue_id, url, path, length) -> None:
+    def add_to_queue(self, queue_id: int, url: str, path: str, length: float) -> None:
         '''
         Adds a track to the queuelist table
         '''
@@ -85,7 +85,7 @@ class DataBase:
 
         log.info(f"{queue_id}/{url}/{path}/{length} added to queuelist")
 
-    def move_entries(self, index) -> None:
+    def move_entries(self, index: int) -> None:
 
         log.info(f"Moving all entries that are equal or bigger than {index}")
 
@@ -93,7 +93,7 @@ class DataBase:
                             "SET queue_id = queue_id + 1",
                             f"WHERE queue_id >= {index};"]))
 
-    def insert_into_queue(self, index, url, length, path) -> None:
+    def insert_into_queue(self, index: int, url: str, length: float, path: str) -> None:
 
         log.info(f"Inserting {url} to index {index}")
 
@@ -118,6 +118,20 @@ class DataBase:
 
         log.info("Maximum queue_id: " + str(index))
         return index
+    
+    def create_playlist_table(self, name: str) -> None:
 
+        query = " ".join([f"CREATE TABLE IF NOT EXISTS `{name}` (",
+                    "id INT AUTO_INCREMENT,",
+                    "url VARCHAR(255) NOT NULL,",
+                    "path VARCHAR(255),",
+                    "length FLOAT,",
+                    "PRIMARY KEY (id)",
+                    ")  ENGINE=INNODB;"])
+        self.execute(query)
 
-        
+    def insert_into_playlist(self, name: str, url: str, path: str, length: float):
+
+        path = path.replace("'", "''")
+        query = f"INSERT INTO `{name}` (url, path, length) VALUES ('{url}', '{path}', {length});"
+        self.execute(query)

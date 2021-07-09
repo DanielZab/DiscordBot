@@ -2,6 +2,7 @@
 
 # High priority imports
 import logging
+from platform import release
 import logger
 import hide
 
@@ -24,6 +25,9 @@ import string_creator
 
 # Control board commands
 import control
+
+# Updating slash commands
+import slashcommands
 
 # Standard library imports
 import os, shutil, datetime, sys, random, time, math, re
@@ -228,7 +232,7 @@ client = MyClient()
 slash = SlashCommand(client)
 
 
-def download_audio(url) -> None:
+def download_audio_manually(url) -> None:
 
     # TODO try multiple urls for playlists
     # Download audio into specific test folder
@@ -282,7 +286,7 @@ def convert_url(url: str, id_only: bool = False, playlist: bool = False) -> str:
 
     # Match id
     if playlist:
-        match = re.match(r"^https?://youtube.com.*l(ist)?=(?P<id>[^#&?%\s]+).*$", url)
+        match = re.match(r"^https?://(www\.)?youtube\.[a-zA-Z0-9]{2,4}.*l(ist)?=(?P<id>[^#&?%\s]+).*$", url)
     else:
         match = re.match(r"^https?://(?:www\.|m\.)?youtu(?:.*\.[A-Za-z0-9]{2,4}.*(?:/user/\w+#p(?:/a)?/u/\d+/|/e(?:mbed)?/|/vi?/|(watch\?)?vi?(?:=|%))|\.be/)(3D)?(?P<id>[^#&?%\s]+).*$", url)
 
@@ -492,6 +496,28 @@ async def join(ctx: SlashContext) -> bool:
     return False
 
 
+async def try_to_download(url: str) -> None:
+
+    # Download audio
+    log.info("Starting download process")
+    try:
+        # FIXME pafy
+        # TODO Duplicates
+        vid = pafy.new(url)
+        bestaudio = vid.getbestaudio(preftype="webm")
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, bestaudio.download, filepath="test\\", quiet=True)
+
+    except Exception as e:
+
+        log.error("Pafy failed downloading: " + str(e))
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, download_audio_manually, url)
+
+    log.info("Finished downloading")
+
+
 async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int = 0) -> bool:
     '''
     Downloads audio and adds it to the queue
@@ -518,32 +544,15 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int 
             # Get all files in test directory
             files = os.listdir("test")
 
-            # Download audio
-            log.info("Starting download process")
-
-            try:
-                # FIXME pafy
-                # TODO Duplicates
-                vid = pafy.new(url)
-                bestaudio = vid.getbestaudio(preftype="webm")
-
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, bestaudio.download, filepath="test\\", quiet=True)
-
-            except Exception as e:
-
-                log.info("Pafy failed downloading: ", str(e))
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, download_audio, url)
-
-            log.info("Finished downloading")
+            await try_to_download(url)
 
             # Get path of downloaded file by getting all files in test directory
             # and removing all files that already were there
             path = list(set(os.listdir("test")).difference(set(files)))[0]
             log.info(f"Path found: {str(path)}")
             
-            # Normalize volume of track, move it to the queue folder and get its length  
+            # Normalize volume of track, move it to the queue folder and get its length
+            loop = asyncio.get_event_loop() 
             length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "queue\\" + path)
 
             # Change path to queue directory
@@ -948,6 +957,79 @@ async def _quit(ctx: SlashContext):
     log.info("Bot was closed")
 
 
+@slash.subcommand(base="create", name="playlist")
+async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
+
+    if not await check_admin(ctx):
+        return
+
+    await ctx.defer(hidden=True)
+
+    try:
+        _id = convert_url(url, id_only=True, playlist=True)
+    
+    except ValueError:
+
+        await ctx.send("Invalid url", hidden=True)
+        return
+
+    try:
+        name = file_manager.create_playlist_directory(name)
+    
+    except ValueError:
+        ctx.send("Invalid playlist name", hidden=True)
+        return
+
+    # Create database table
+    try:
+        db.create_playlist_table(name)
+    
+    except Exception as e:
+        log.info("Couldn't create table: " + str(e))
+        shutil.rmtree("playlists\\" + name)
+    
+    # Add choice to slash command
+    slashcommands.update_play_command(name)
+
+    # Get urls of videos in playlist
+    url_list = await yt.get_playlist_contents(_id)
+
+    # Download contents
+    ctx.send("Downloading contents", hidden=True)
+
+    for url in url_list:
+
+        try:
+
+            await client.lock.acquire()
+            # Get all files in test directory
+            files = os.listdir("test")
+
+            await try_to_download(url)
+
+            # Get path of downloaded file by getting all files in test directory
+            # and removing all files that already were there
+            path = list(set(os.listdir("test")).difference(set(files)))[0]
+            log.info(f"Path found: {str(path)}")
+            
+            # Normalize volume of track, move it to the queue folder and get its length
+            loop = asyncio.get_event_loop()  
+            length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "playlists\\" + name + "\\" + path)
+
+            # Change path to queue directory
+            path = "playlists\\\\" + name + "\\\\" + path
+
+            db.insert_into_playlist(name, url, path, int(length))
+
+            log.info(f"{path} added to {name} playlist")
+        
+        except Exception as e:
+            log.error(f"Couldn't add {url} to playlist. Error: " + str(e))
+        
+        finally:
+            client.lock.release()
+
+    await ctx.send("Finished creating playlist")
 
 
 @client.event
