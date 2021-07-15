@@ -145,6 +145,9 @@ class MyClient(discord.Client):
         # Container for the id of the admin role
         self.admin_role_id = None
 
+        # Indicates whether player is paused manually
+        self.force_stop = False
+
     def vc_check(self) -> bool:
         '''
         Checks whether player is paused/playing a song
@@ -167,11 +170,23 @@ class MyClient(discord.Client):
             return False
 
     def start_player(self):
+
+        self.force_stop = False
         check_player.start()
     
-    def stop(self):
+    def stop(self, force: bool = False):
+
+        if force:
+            self.force_stop = True
+
         if self.vc_check():
             self.vc.stop()
+    
+    def check_queue_counter(self):
+        max_id = db.get_max_queue_id()
+        if self.queue_counter > max_id:
+            self.queue_counter = max_id + 1
+            self.waiting = True
 
     async def update_queuelist_messages(self) -> None:
 
@@ -415,7 +430,17 @@ def get_name_from_path(path) -> str:
 
         log.warning("Couldn't get name from path {path}")
         return None
-        
+
+
+def check_index(index) -> int:
+
+    if index > db.get_max_queue_id() - client.queue_counter:
+
+        log.info("Index too high!")
+        return 0
+
+    return index
+
 
 async def check_admin(ctx: SlashContext) -> bool:
     '''
@@ -503,6 +528,7 @@ async def try_to_download(url: str) -> None:
     try:
         # FIXME pafy
         # TODO Duplicates
+        # TODO Multiprocessing
         vid = pafy.new(url)
         bestaudio = vid.getbestaudio(preftype="webm")
 
@@ -518,7 +544,7 @@ async def try_to_download(url: str) -> None:
     log.info("Finished downloading")
 
 
-async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int = 0) -> bool:
+async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int = 0, file_data: Union[bool, dict] = False) -> bool:
     '''
     Downloads audio and adds it to the queue
     '''
@@ -526,45 +552,55 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int 
     # Block all processes but one
     await client.lock.acquire()
 
-    # Try to download
-    try:
+    # Check if file is already downloaded
+    if not file_data:
 
-        # Check if video is longer than 10 minutes
-        temp_length = get_length(url)
-        if temp_length > 600 and not client.waiting and not update:
+        # Try to download
+        try:
 
-            # Download audio later
-            await ctx.send("The video is longer than 10 minutes, I'll download it after the current track", hidden=True)
-            path = "Placeholder"
-            length = temp_length
-            log.info(f"Video length exceeds 10 minutes: {length / 60}")
+            # Check if video is longer than 10 minutes
+            temp_length = get_length(url)
+            if temp_length > 600 and not client.waiting and not update:
 
-        else:
+                # Download audio later
+                await ctx.send("The video is longer than 10 minutes, I'll download it after the current track", hidden=True)
+                path = "Placeholder"
+                length = temp_length
+                log.info(f"Video length exceeds 10 minutes: {length / 60}")
 
-            # Get all files in test directory
-            files = os.listdir("test")
+            else:
 
-            await try_to_download(url)
+                # Get all files in test directory
+                files = os.listdir("test")
 
-            # Get path of downloaded file by getting all files in test directory
-            # and removing all files that already were there
-            path = list(set(os.listdir("test")).difference(set(files)))[0]
-            log.info(f"Path found: {str(path)}")
-            
-            # Normalize volume of track, move it to the queue folder and get its length
-            loop = asyncio.get_event_loop() 
-            length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "queue\\" + path)
+                await try_to_download(url)
 
-            # Change path to queue directory
-            path = "queue\\\\" + path
+                # Get path of downloaded file by getting all files in test directory
+                # and removing all files that already were there
+                path = list(set(os.listdir("test")).difference(set(files)))[0]
+                log.info(f"Path found: {str(path)}")
+                
+                # Normalize volume of track, move it to the queue folder and get its length
+                loop = asyncio.get_event_loop() 
+                length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "queue\\" + path)
 
-    except Exception as e:
+                # Change path to queue directory
+                path = "queue\\\\" + path
 
-        log.error("Failed downloading. Error: " + str(e))
+        except Exception as e:
 
-        client.lock.release()
+            log.error("Failed downloading. Error: " + str(e))
 
-        return False
+            client.lock.release()
+
+            return False
+
+    else: 
+        
+        # Get data from previously downloaded file
+        url = file_data["url"]
+        path = file_data["path"]
+        length = file_data["length"]
 
     # Move all entries higher or equal to index
     if index:
@@ -617,9 +653,7 @@ async def play_audio(ctx: SlashContext, url: str, index: int, silent: bool = Fal
 
         # If index is too high, set to 0
         # This adds the song to the end of the queue
-        if index > db.get_max_queue_id() - client.queue_counter:
-            index = 0
-            log.info("Index too high!")
+        index = check_index(index)
 
         result = await add_to_queue(ctx, url, index)
 
@@ -762,8 +796,8 @@ async def play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
     await play_audio(ctx, url, index)
 
 
-@slash.subcommand(base="play", name="playlist")
-async def play_playlist(ctx: SlashContext, url: str, index: int = 0, limit: int = 0, randomize: bool = False):
+@slash.subcommand(base="play", subcommand_group="playlist", name="by_url")
+async def play_playlist_by_url(ctx: SlashContext, url: str, index: int = 0, limit: int = 0, randomize: bool = False):
 
     await ctx.defer(hidden=True)
 
@@ -807,6 +841,51 @@ async def play_playlist(ctx: SlashContext, url: str, index: int = 0, limit: int 
 
     await ctx.send("All songs from playlist have been added")
 
+@slash.subcommand(base="play", subcommand_group="playlist", name="by_name")
+async def _play_playlist_by_name(ctx: SlashContext, name: str, index: int = 0, limit: int = 0, randomize: bool = False):
+    
+    await ctx.defer()
+
+    # Join channel
+    if not await join(ctx):
+
+        return
+    
+    query = f"SELECT url, path, length FROM {name}"
+    playlist_songs = db.execute(query)
+
+    # Shuffle list if desired
+    if randomize:
+
+        random.shuffle(playlist_songs)
+
+    # Shorten the list
+    if limit and limit < len(playlist_songs):
+
+        playlist_songs = playlist_songs[:limit]
+
+    # If index is too high, set to 0
+    # This cause the songs to be added the end of the queue
+    index = check_index(index)
+    for song in playlist_songs:
+        
+        # Put song data into a dictionary
+        song_data = {
+            "url": song[0],
+            "path": song[1].replace("\\", "\\\\"),
+            "length": song[2]
+        }
+
+        # Add song to queue
+        await add_to_queue(ctx, "", index=index, file_data=song_data)
+
+        # Increase index by one if active
+        if index:
+            index += 1
+
+    await ctx.send("Playlist added")
+
+# TODO player reset/loop check
 
 @slash.slash(name="control")
 async def _control(ctx: SlashContext):
@@ -942,13 +1021,13 @@ async def _quit(ctx: SlashContext):
 
     await ctx.defer()
 
+    update_duration.cancel()
+
     # Disconnect from voice channel, reset queuelist table and delete files
     await control_board.stop(client, db, ctx, silent=True)
 
     # Set status to offline
     await client.change_presence(status=discord.Status.offline)
-
-    update_duration.cancel()
 
     await ctx.send("Bye!")
 
@@ -960,76 +1039,110 @@ async def _quit(ctx: SlashContext):
 @slash.subcommand(base="create", name="playlist")
 async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
 
+    try:
+
+        if not await check_admin(ctx):
+            return
+
+        await ctx.defer(hidden=True)
+
+        try:
+            _id = convert_url(url, id_only=True, playlist=True)
+        
+        except ValueError:
+
+            await ctx.send("Invalid url", hidden=True)
+            return
+
+        try:
+            name = file_manager.create_playlist_directory(name)
+        
+        except ValueError:
+            ctx.send("Invalid playlist name", hidden=True)
+            return
+
+        # Create database table
+        try:
+            db.create_playlist_table(name)
+        
+        except Exception as e:
+            log.info("Couldn't create table: " + str(e))
+            shutil.rmtree("playlists\\" + name)
+        
+        # Add choice to slash command
+        slashcommands.update_playlist_commands()
+
+        # Get urls of videos in playlist
+        url_list = await yt.get_playlist_contents(_id)
+
+        # Download contents
+        await ctx.send("Downloading contents", hidden=True)
+
+        for url in url_list:
+
+            try:
+
+                await client.lock.acquire()
+                # Get all files in test directory
+                files = os.listdir("test")
+
+                await try_to_download(url)
+
+                # Get path of downloaded file by getting all files in test directory
+                # and removing all files that already were there
+                path = list(set(os.listdir("test")).difference(set(files)))[0]
+                log.info(f"Path found: {str(path)}")
+                
+                # Normalize volume of track, move it to the queue folder and get its length
+                loop = asyncio.get_event_loop()  
+                length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "playlists\\" + name + "\\" + path)
+
+                # Change path to queue directory
+                path = r"playlists\\" + name + r"\\" + path
+
+                db.insert_into_playlist(name, url, path, int(length))
+
+                log.info(f"{path} added to {name} playlist")
+            
+            except Exception as e:
+                log.error(f"Couldn't add {url} to playlist. Error: " + str(e))
+            
+            finally:
+                client.lock.release()
+
+        await ctx.send("Finished creating playlist")
+    
+    except Exception as e:
+
+        # Revert changes
+        file_manager.delete_directory(name)
+        db.execute("DROP TABLE " + name)
+
+        log.error("Couldn't create playlist. Error: " + str(e))
+
+        await ctx.send("Something went wrong")
+
+@slash.subcommand(base="delete", name="playlist")
+async def _delete_playlist(ctx: SlashContext, name: str) -> None:
+
     if not await check_admin(ctx):
         return
 
-    await ctx.defer(hidden=True)
+    await ctx.defer()
 
-    try:
-        _id = convert_url(url, id_only=True, playlist=True)
-    
-    except ValueError:
+    client.stop(force=True)
 
-        await ctx.send("Invalid url", hidden=True)
-        return
+    file_manager.delete_directory("playlists\\" + name)
 
-    try:
-        name = file_manager.create_playlist_directory(name)
-    
-    except ValueError:
-        ctx.send("Invalid playlist name", hidden=True)
-        return
+    slashcommands.update_playlist_commands()
 
-    # Create database table
-    try:
-        db.create_playlist_table(name)
-    
-    except Exception as e:
-        log.info("Couldn't create table: " + str(e))
-        shutil.rmtree("playlists\\" + name)
-    
-    # Add choice to slash command
-    slashcommands.update_play_command(name)
+    db.reset_queuelist_ids()
 
-    # Get urls of videos in playlist
-    url_list = await yt.get_playlist_contents(_id)
+    db.execute(f"DROP TABLE {name}")
 
-    # Download contents
-    ctx.send("Downloading contents", hidden=True)
+    client.start_player()
 
-    for url in url_list:
-
-        try:
-
-            await client.lock.acquire()
-            # Get all files in test directory
-            files = os.listdir("test")
-
-            await try_to_download(url)
-
-            # Get path of downloaded file by getting all files in test directory
-            # and removing all files that already were there
-            path = list(set(os.listdir("test")).difference(set(files)))[0]
-            log.info(f"Path found: {str(path)}")
-            
-            # Normalize volume of track, move it to the queue folder and get its length
-            loop = asyncio.get_event_loop()  
-            length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "playlists\\" + name + "\\" + path)
-
-            # Change path to queue directory
-            path = "playlists\\\\" + name + "\\\\" + path
-
-            db.insert_into_playlist(name, url, path, int(length))
-
-            log.info(f"{path} added to {name} playlist")
-        
-        except Exception as e:
-            log.error(f"Couldn't add {url} to playlist. Error: " + str(e))
-        
-        finally:
-            client.lock.release()
-
-    await ctx.send("Finished creating playlist")
+    await ctx.send(name + " was deleted")
 
 
 @client.event
@@ -1090,7 +1203,7 @@ async def check_player() -> None:
     log.info("Checking whether to play audio")
 
     # Check whether connected to voice client
-    if client.vc:
+    if client.vc and not client.force_stop:
 
         # Bypass steps if boption available
         if not client.boption:
@@ -1165,6 +1278,9 @@ async def check_player() -> None:
         
         # Update client queue messages
         await client.update_queuelist_messages()
+
+    elif client.force_stop:
+        log.warning("Player currently stopped")
 
     else:
         log.warning("Not connected to voice channel")

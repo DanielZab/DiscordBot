@@ -2,19 +2,19 @@ import os, shutil, logging
 
 log = logging.getLogger(__name__)
 
+
+def delete_directory(direc):
+    if os.path.exists(direc) and os.path.isdir(direc):
+        shutil.rmtree(direc)
+
 def reset_directories():
-    if os.path.exists('queue') and os.path.isdir('queue'):
-
-        shutil.rmtree('queue')
-
+    
+    delete_directory('queue')
     os.mkdir('queue')
 
     log.info("Queue was reset")
 
-    if os.path.exists('test') and os.path.isdir('test'):
-
-        shutil.rmtree('test')
-
+    delete_directory('test')
     os.mkdir('test')
 
     log.info("Test was reset")
@@ -49,3 +49,16 @@ def create_playlist_directory(name: str):
     else:
         log.error("Invalid playlist name")
         raise ValueError
+
+def get_playlists():
+
+    log.info("Getting playlist directories")
+
+    playlists = []
+    if os.path.exists("playlists"):
+        folders = os.listdir("playlists")
+        for folder in folders:
+            if os.path.isdir("playlists\\" + folder):
+                playlists.append(folder)
+    
+    return playlists

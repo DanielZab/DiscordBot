@@ -135,3 +135,13 @@ class DataBase:
         path = path.replace("'", "''")
         query = f"INSERT INTO `{name}` (url, path, length) VALUES ('{url}', '{path}', {length});"
         self.execute(query)
+    
+    def reset_queuelist_ids(self):
+        log.info("Closing gaps in queuelist")
+        query = "SELECT id FROM queuelist"
+        queuelist = self.execute(query)
+
+        # Close gaps in queuelist by giving ordered queue_id indieces
+        for i, song in enumerate(queuelist, start=1):
+            query = f"UPDATE queuelist SET queue_id={i} WHERE id={song[0]}"
+        # TODO Test when many songs in queue
