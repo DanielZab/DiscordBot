@@ -19,7 +19,7 @@ headers = {
     "Authorization": f"Bot {TOKEN}"
 }
 
-
+# region functions
 def get_play_command(choice: list = []):
     p = {
         "name": "play",
@@ -164,6 +164,31 @@ def get_delete_command(choice: list = []):
         ]
     }
     return delete
+
+
+def get_update_command(choice: list = []):
+    update = {
+        "name": "update",
+        "description": "Update something",
+        "options": [
+            {
+                "name": "playlist",
+                "description": "Update a playlist (Admin only)",
+                "type": 1,
+                "options": [
+                    {
+                        "name": "name",
+                        "description": "The name of the playlist",
+                        "type": 3,
+                        "required": True,
+                        "choices": choice
+                    }
+                ]
+            }
+        ]
+    }
+    return update
+# endregion
 
 
 # region commands
@@ -312,7 +337,12 @@ _quit = {
     "name": "quit",
     "description": "Close the bot (Admin only)"
 }
+
+update = get_update_command()
+
+delete = get_delete_command()
 # endregion
+
 
 
 def post(js):
@@ -342,13 +372,16 @@ def update_playlist_commands() -> None:
     # Convert the list elements to the right format
     choices = list(({"name": f"{e}", "value": f"{e}"} for e in choices))
 
-    # Create play and remove commands with new playlist choices
+    # Create play, update and delete commands with new playlist choices
     play = get_play_command(choices)
+
+    update = get_update_command(choices)
 
     delete = get_delete_command(choices)
 
     # Send commands
     post(play)
+    post(update)
     post(delete)
 
     log.info('Updated play command')

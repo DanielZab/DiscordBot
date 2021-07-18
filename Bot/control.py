@@ -62,7 +62,7 @@ class ControlBoard:
         if not client.waiting:
             # Don't skip if only skipping one and playing longer than 3 seconds
             # This causes the song to repeat instead of going to the previous song
-            if not (amount == 1 and client.song_timer < 3):
+            if not (amount == 1 and client.song_timer > 5):
                 client.queue_counter -= 1
 
         await ctx.send("Gone back!", delete_after=3)
@@ -74,6 +74,7 @@ class ControlBoard:
         # Otherwise start player manually
         else:
             client.start_player()
+        
 
     async def pause(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext]) -> None:
 

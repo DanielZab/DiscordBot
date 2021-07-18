@@ -3,6 +3,9 @@
 # High priority imports
 import logging
 from platform import release
+
+from discord import embeds
+from discord_slash.model import SlashMessage
 import logger
 import hide
 
@@ -141,12 +144,20 @@ class MyClient(discord.Client):
         # The name and duration of the current track
         self.current_track_name = None
         self.current_track_duration = 0
+        self.current_thumbnail = None
 
         # Container for the id of the admin role
         self.admin_role_id = None
 
         # Indicates whether player is paused manually
         self.force_stop = False
+
+        # Indicates whether to repeat current song
+        self.repeat = False
+
+        # How often to repeat
+        self.repeat_counter = -1
+        
 
     def vc_check(self) -> bool:
         '''
@@ -181,12 +192,12 @@ class MyClient(discord.Client):
 
         if self.vc_check():
             self.vc.stop()
-    
-    def check_queue_counter(self):
-        max_id = db.get_max_queue_id()
-        if self.queue_counter > max_id:
-            self.queue_counter = max_id + 1
-            self.waiting = True
+
+    def reset_current_song_data(self) -> None:
+
+        self.current_track_name = None
+        self.current_track_duration = 0
+        self.current_thumbnail = None
 
     async def update_queuelist_messages(self) -> None:
 
@@ -231,7 +242,10 @@ class MyClient(discord.Client):
 
         for message_tuple in self.queuelist_messages:
             for msg in message_tuple[0]:
-                await msg.delete()
+                try:
+                    await msg.delete()
+                except Exception as e:
+                    log.error("Couldn't delete control board message. Error: " + str(e))
     
     async def delete_control_board_messages(self):
 
@@ -249,7 +263,6 @@ slash = SlashCommand(client)
 
 def download_audio_manually(url) -> None:
 
-    # TODO try multiple urls for playlists
     # Download audio into specific test folder
     output = subprocess.run(f'youtube-dl -F {url}', capture_output=True).stdout
     log.debug(output.decode("utf-8"))
@@ -348,13 +361,23 @@ def song_done(error: Exception) -> None:
     Callback function which gets calles after a song has ended
     Prints errors if present and starts the next track
     '''
-
-    if error:
+    if client.force_stop:
+        log.warning("Force stop")
+        client.queue_counter -= 1
+    elif error:
         log.error("An error has occurred during playing: " + str(error))
     else:
         log.info("The song has ended")
 
-    client.queue_counter += 1
+    if not client.repeat:
+        client.queue_counter += 1
+    elif client.repeat_counter > -1:
+        if client.repeat_counter == 0:
+            client.repeat = False
+            client.repeat_counter = -1
+        else:
+            client.repeat_counter -= 1
+        
 
     # Play next track
     check_player.start()
@@ -686,6 +709,21 @@ async def check_silent_and_send(ctx: SlashContext, msg: str,  silent: bool, hidd
             await ctx.send(msg, hidden=hidden)
 
 
+async def send_updated_control_board_messages():
+    # Create string
+    new_embed = string_creator.create_control_board_message_string(
+        name=client.current_track_name,
+        song_timer=int(client.song_timer),
+        track_duration=int(client.current_track_duration),
+        url=client.current_thumbnail
+    )
+    for msg in client.control_board_messages:
+        old_fields = msg.embeds[0].fields
+        new_fields = new_embed.fields
+        if len(old_fields) != len(new_fields) or not all(old_fields[e].value == new_fields[e].value for e in range(len(old_fields))):
+            await msg.edit(embed=new_embed)
+
+
 
 @slash.subcommand(base="play", subcommand_group='video', name="by_name")
 async def play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: int = 0) -> None:
@@ -933,9 +971,14 @@ async def _control(ctx: SlashContext):
     action_row_1 = manage_components.create_actionrow(*buttons_1)
     action_row_2 = manage_components.create_actionrow(*buttons_2)
 
-    msg = await ctx.send("No song playing!", components=[action_row_1, action_row_2])
+    embed = discord.Embed()
+    embed.title = "No Current Track"
+
+    msg = await ctx.send(embed=embed, components=[action_row_1, action_row_2])
 
     client.control_board_messages.append(msg)
+
+    # FIXME cannot load on multiple instances
 
     while len(client.control_board_messages) > 1:
         old_msg = client.control_board_messages.pop(0)
@@ -1063,7 +1106,7 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
 
         # Create database table
         try:
-            db.create_playlist_table(name)
+            db.create_playlist_table(name, url)
         
         except Exception as e:
             log.info("Couldn't create table: " + str(e))
@@ -1122,6 +1165,19 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
 
         await ctx.send("Something went wrong")
 
+
+@slash.subcommand(base="update", name="playlist")
+async def _update_playlist(ctx: SlashContext, name: str, url: str = "") -> None:
+
+    if not await check_admin(ctx):
+        return
+
+    await ctx.defer()
+
+    if not url:
+        pass
+
+
 @slash.subcommand(base="delete", name="playlist")
 async def _delete_playlist(ctx: SlashContext, name: str) -> None:
 
@@ -1140,10 +1196,23 @@ async def _delete_playlist(ctx: SlashContext, name: str) -> None:
 
     db.execute(f"DROP TABLE {name}")
 
+    db.execute(f"DELETE FROM playlists WHERE name = {name}")
+
     client.start_player()
 
     await ctx.send(name + " was deleted")
 
+
+@slash.slash(name="repeat")
+async def _repeat(ctx: SlashContext, amount: int = -1):
+    if amount > -1 and client.repeat:
+        client.repeat_counter = amount
+    elif client.repeat:
+        client.repeat = False
+        client.repeat_counter = -1
+    else:
+        client.repeat = True
+        client.repeat_counter = amount
 
 @client.event
 async def on_ready() -> None:
@@ -1230,7 +1299,7 @@ async def check_player() -> None:
             # Get and play next song
             while True:
                 try:
-                    db_result = db.execute(f"SELECT path, length FROM queuelist WHERE queue_id = {client.queue_counter}")
+                    db_result = db.execute(f"SELECT path, length, url FROM queuelist WHERE queue_id = {client.queue_counter}")
                     path = db_result[0][0]
                     break
                 except IndexError:
@@ -1246,7 +1315,6 @@ async def check_player() -> None:
 
             else:
                 source = discord.FFmpegOpusAudio(path)
-
 
             # Reset song timer
             client.song_timer = 0
@@ -1269,12 +1337,20 @@ async def check_player() -> None:
             # Set track duration in client
             client.current_track_duration = db_result[0][1]
 
+            # Set track thumbnail
+            _id = convert_url(db_result[0][2], id_only=True)
+            client.current_thumbnail = f"https://i.ytimg.com/vi/{_id}/mqdefault.jpg"
+
         else:
 
             log.info(f"No more tracks available! Current index: {index}, current queuecounter: {client.queue_counter}")
 
             # Wait for next track
             client.waiting = True
+            client.reset_current_song_data()
+
+            # Update control board message
+            await send_updated_control_board_messages()
         
         # Update client queue messages
         await client.update_queuelist_messages()
@@ -1299,21 +1375,7 @@ async def update_duration():
             
             if len(client.control_board_messages):
 
-                # Create string
-                new_msg = string_creator.create_control_board_message_string(
-                    name=client.current_track_name,
-                    song_timer=int(client.song_timer),
-                    track_duration=int(client.current_track_duration)
-                )
-                for msg in client.control_board_messages:
-                    if msg.content != new_msg:
-                        await msg.edit(content=new_msg)
-    
-    # Change content of control board messages if no song is playing
-    elif not client.vc or client.vc and not client.vc.is_paused():
-        for msg in client.control_board_messages:
-            await msg.edit(content="No song playing!")
-
+                await send_updated_control_board_messages()
 
 if __name__ == "__main__":
 
@@ -1334,7 +1396,11 @@ if __name__ == "__main__":
     control_board = control.ControlBoard()
 
     # TODO Create directories
-    # TODO visibility, admin commands
+    # TODO visibility
 
     # Run Discord Bot
     client.run(env_var.TOKEN)
+
+# TODO implement cogs
+# TODO repeat
+# TODO upload emojis

@@ -1,4 +1,7 @@
 import logging
+from discord import Embed
+import tkinter
+from tkinter import font as tkFont
 log = logging.getLogger(__name__)
 
 
@@ -51,7 +54,7 @@ def create_queue_string(queuelist: list, amount: int) -> list:
 
     return msg_list
 
-def create_control_board_message_string(name: str, song_timer: int, track_duration: int) -> str:
+def create_control_board_message_string(name: str, song_timer: int, track_duration: int, url: str) -> Embed:
 
     from main import convert_time
 
@@ -60,19 +63,37 @@ def create_control_board_message_string(name: str, song_timer: int, track_durati
     cst = convert_time(song_timer)  # Converted song timer
     cctd = convert_time(track_duration)  # Converted current track duration
 
-    new_msg = f"Current track:\n\t**{name if len(name) < 60 else name[:60] + '...'} ({(ccsd[0]+':') if cctd[0] else ''}{str(cctd[1]).zfill(2) + ':' + str(cctd[2]).zfill(2)})**\n "
+    embed = Embed()
+    if url:
+        embed.set_thumbnail(url=url)
+    
+    if not name:
+        embed.title = "No Current Track"
+        return embed
 
-    length = 18
+    title = f"{name if len(name) < 60 else name[:60] + '...'} ({(cctd[0]+':') if cctd[0] else ''}{str(cctd[1]).zfill(2) + ':' + str(cctd[2]).zfill(2)})"
+    embed.title = title
+    progress_bar = ""
+    tkinter.Frame().destroy()
+    arial16b = tkFont.Font(family='Arial', size=16, weight="bold")
+    arial16n = tkFont.Font(family='Arial', size=16, weight="normal")
+    title_width = arial16b.measure(title)
+    unit_width = arial16n.measure("░")
+    length = int(title_width / unit_width) + 1
+    if length > 39:
+        length = 39
     for i in range(1, length + 1):
         if i / length <= song_timer / (track_duration - 1):
-            new_msg += '█'
+            progress_bar += '█'
         else:
-            new_msg += '░'
+            progress_bar += '░'
+
+    embed.add_field(name="Progress:", value=progress_bar, inline=False)
 
     if song_timer > track_duration:
         song_timer = track_duration
 
-    return new_msg  # !TEST
+    return embed  # !TEST
 
     # Add timer to the message
     if cctd[0]:

@@ -58,12 +58,20 @@ class DataBase:
         # Create queuelist table if not existent
         query = " ".join(["CREATE TABLE IF NOT EXISTS queuelist (",
                           "id INT AUTO_INCREMENT,",
-                          "queue_id INT NOT NULL",
+                          "queue_id INT NOT NULL,",
                           "url VARCHAR(255) NOT NULL,",
                           "path VARCHAR(255),",
                           "length FLOAT,",
                           "PRIMARY KEY (id)",
                           ")  ENGINE=INNODB;"])
+        self.execute(query)
+
+        query = " ".join(["CREATE TABLE IF NOT EXISTS playlists (",
+                    "id INT AUTO_INCREMENT,",
+                    "name VARCHAR(255) NOT NULL,",
+                    "url VARCHAR(255) NOT NULL,",
+                    "PRIMARY KEY (id)",
+                    ")  ENGINE=INNODB;"])
         self.execute(query)
 
         # Delete all entries from queuelist table
@@ -119,7 +127,7 @@ class DataBase:
         log.info("Maximum queue_id: " + str(index))
         return index
     
-    def create_playlist_table(self, name: str) -> None:
+    def create_playlist_table(self, name: str, url: str) -> None:
 
         query = " ".join([f"CREATE TABLE IF NOT EXISTS `{name}` (",
                     "id INT AUTO_INCREMENT,",
@@ -128,6 +136,10 @@ class DataBase:
                     "length FLOAT,",
                     "PRIMARY KEY (id)",
                     ")  ENGINE=INNODB;"])
+        self.execute(query)
+
+        query = f"INSERT INTO playlists VALUES ('{name}', '{url}')"
+
         self.execute(query)
 
     def insert_into_playlist(self, name: str, url: str, path: str, length: float):
