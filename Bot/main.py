@@ -23,6 +23,9 @@ from database import DataBase
 # File manager
 import file_manager
 
+# MyClient class
+from my_client import MyClient
+
 # String creator
 import string_creator
 
@@ -33,7 +36,7 @@ import control
 import slashcommands
 
 # Standard library imports
-import os, shutil, datetime, sys, random, time, math, re
+import os, shutil, datetime, sys, random, time, math, re, functools
 
 # Google and Discord api imports
 import discord
@@ -92,165 +95,6 @@ class AudioFile:
         self.boption = boption
         self.id = id
         self.queue_id = int
-
-
-class MyClient(discord.Client):
-    '''
-    Extends the discord.Client class in order to add some custom properties
-    '''
-
-    def __init__(self) -> None:
-
-        super().__init__()
-        self.setup()
-    
-    def setup(self) -> None:
-        
-        # Create containers for current voice channel and its name
-        self.channel = None
-        self.vc = None
-
-        # Create counter for current track
-        self.queue_counter = 1
-
-        # Indicates if all requested songs have been played
-        self.waiting = True
-
-        # Lock which guarantees exclusive access to a shared resource
-        self.lock = asyncio.Lock()
-
-        # To download in between of songs
-        self.placeholders = []  # FIXME
-
-        # A list of emojis representing numbers
-        self.emoji_list = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🚫']
-
-        # Container for all emojis
-        self.custom_emojis = dict()
-
-        # Indicates how long a song has been played
-        self.song_timer = 0 
-
-        # Before options for the player, can specify different things such as where to start
-        # or playback speed
-        self.boption = None
-
-        # Containter for all messages containing control boards
-        self.control_board_messages = []
-
-        # Container for all messages containing the queuelist
-        self.queuelist_messages = []
-
-        # The name and duration of the current track
-        self.current_track_name = None
-        self.current_track_duration = 0
-        self.current_thumbnail = None
-
-        # Container for the id of the admin role
-        self.admin_role_id = None
-
-        # Indicates whether player is paused manually
-        self.force_stop = False
-
-        # Indicates whether to repeat current song
-        self.repeat = False
-
-        # How often to repeat
-        self.repeat_counter = -1
-        
-
-    def vc_check(self) -> bool:
-        '''
-        Checks whether player is paused/playing a song
-        '''
-        return self.vc and (self.vc.is_paused() or self.vc.is_playing())
-    
-    def play_with_boption(self, boption) -> None:
-        '''
-        Resets the current track with the boption settings
-        '''
-
-        if self.vc_check():
-        
-            self.queue_counter -= 1
-            self.boption = boption
-            self.vc.stop()
-            return True
-        
-        else:
-            return False
-
-    def start_player(self):
-
-        self.force_stop = False
-        check_player.start()
-    
-    def stop(self, force: bool = False):
-
-        if force:
-            self.force_stop = True
-
-        if self.vc_check():
-            self.vc.stop()
-
-    def reset_current_song_data(self) -> None:
-
-        self.current_track_name = None
-        self.current_track_duration = 0
-        self.current_thumbnail = None
-
-    async def update_queuelist_messages(self) -> None:
-
-        log.info("Updating queuelists")
-
-        query = f"SELECT path, length FROM queuelist WHERE queue_id >= {self.queue_counter} ORDER BY queue_id"
-        queuelist = db.execute(query)
-
-        # Delete all messages if there are no more songs
-        if len(queuelist) < 1:
-
-            log.info("No more songs, deleting all queuelist messages")
-            for messages in self.queuelist_messages:
-
-                for message in messages[0]:
-
-                    await message.delete()
-
-            return
-
-        for messages, amount in self.queuelist_messages:
-
-            new_messages = string_creator.create_queue_string(queuelist, amount)
-
-            for i, message in enumerate(messages):
-
-                try:
-
-                    await message.edit(content=new_messages[i])
-
-                except IndexError:
-
-                    await message.delete()
-                
-                except discord.errors.NotFound:
-
-                    log.warning("Could not update queuelist message, it was not found")
-    
-    async def delete_queuelist_messages(self):
-
-        log.info("Deleting all queuelist messages")
-
-        for message_tuple in self.queuelist_messages:
-            for msg in message_tuple[0]:
-                try:
-                    await msg.delete()
-                except Exception as e:
-                    log.error("Couldn't delete control board message. Error: " + str(e))
-    
-    async def delete_control_board_messages(self):
-
-        for message in self.control_board_messages:
-            await message.delete()
 
 
 # endregion
@@ -548,15 +392,17 @@ async def try_to_download(url: str) -> None:
 
     # Download audio
     log.info("Starting download process")
+
     try:
-        # FIXME pafy
         # TODO Duplicates
         # TODO Multiprocessing
         vid = pafy.new(url)
         bestaudio = vid.getbestaudio(preftype="webm")
 
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, bestaudio.download, filepath="test\\", quiet=True)
+        await loop.run_in_executor(None, functools.partial(bestaudio.download,
+                                                        filepath="test\\",
+                                                        quiet=True))
 
     except Exception as e:
 
@@ -578,45 +424,55 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int 
     # Check if file is already downloaded
     if not file_data:
 
-        # Try to download
-        try:
+        duplicates = db.get_url_duplicate(url)
+        if len(duplicates):
 
-            # Check if video is longer than 10 minutes
-            temp_length = get_length(url)
-            if temp_length > 600 and not client.waiting and not update:
+            url = duplicates[0][0]
+            path = duplicates[0][1]
+            length = duplicates[0][2]
+            log.info("Song was lalready downloaded previously, skipping download")
+        
+        else:
 
-                # Download audio later
-                await ctx.send("The video is longer than 10 minutes, I'll download it after the current track", hidden=True)
-                path = "Placeholder"
-                length = temp_length
-                log.info(f"Video length exceeds 10 minutes: {length / 60}")
+            # Try to download
+            try:
 
-            else:
+                # Check if video is longer than 10 minutes
+                temp_length = get_length(url)
+                if temp_length > 600 and not client.waiting and not update:
 
-                # Get all files in test directory
-                files = os.listdir("test")
+                    # Download audio later
+                    await ctx.send("The video is longer than 10 minutes, I'll download it after the current track", hidden=True)
+                    path = "Placeholder"
+                    length = temp_length
+                    log.info(f"Video length exceeds 10 minutes: {length / 60}")
 
-                await try_to_download(url)
+                else:
 
-                # Get path of downloaded file by getting all files in test directory
-                # and removing all files that already were there
-                path = list(set(os.listdir("test")).difference(set(files)))[0]
-                log.info(f"Path found: {str(path)}")
-                
-                # Normalize volume of track, move it to the queue folder and get its length
-                loop = asyncio.get_event_loop() 
-                length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "queue\\" + path)
+                    # Get all files in test directory
+                    files = os.listdir("test")
 
-                # Change path to queue directory
-                path = "queue\\\\" + path
+                    await try_to_download(url)
 
-        except Exception as e:
+                    # Get path of downloaded file by getting all files in test directory
+                    # and removing all files that already were there
+                    path = list(set(os.listdir("test")).difference(set(files)))[0]
+                    log.info(f"Path found: {str(path)}")
+                    
+                    # Normalize volume of track, move it to the queue folder and get its length
+                    loop = asyncio.get_event_loop() 
+                    length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "queue\\" + path)
 
-            log.error("Failed downloading. Error: " + str(e))
+                    # Change path to queue directory
+                    path = "queue\\\\" + path
 
-            client.lock.release()
+            except Exception as e:
 
-            return False
+                log.error("Failed downloading. Error: " + str(e))
+
+                client.lock.release()
+
+                return False
 
     else: 
         
@@ -672,7 +528,7 @@ async def play_audio(ctx: SlashContext, url: str, index: int, silent: bool = Fal
             return
 
         # Download audio
-        await check_silent_and_send(ctx, "Downloading audio", silent, hidden=True)
+        await check_silent_and_send(ctx, "Downloading audio", silent)
 
         # If index is too high, set to 0
         # This adds the song to the end of the queue
@@ -682,7 +538,7 @@ async def play_audio(ctx: SlashContext, url: str, index: int, silent: bool = Fal
 
         if result and not result == "Placeholder":
 
-            await check_silent_and_send(ctx, f"{get_name_from_path(result)} added to the queue", silent, delete_after=5)
+            await check_silent_and_send(ctx, f"{get_name_from_path(result)} added to the queue", silent)
 
         elif not result:
 
@@ -726,12 +582,12 @@ async def send_updated_control_board_messages():
 
 
 @slash.subcommand(base="play", subcommand_group='video', name="by_name")
-async def play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: int = 0) -> None:
+async def _play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: int = 0) -> None:
     '''
     Performs a youtube search with the given keywords and plays its audio
     '''
 
-    await ctx.defer(hidden=True)
+    await ctx.defer()
     # Join channel
     if not await join(ctx):
 
@@ -819,12 +675,12 @@ async def play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: int
 
 
 @slash.subcommand(base="play", subcommand_group='video', name="by_url")
-async def play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
+async def _play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
     '''
     Plays the youtube video with the corresponding url
     '''
 
-    await ctx.defer(hidden=True)
+    await ctx.defer()
 
     # Join channel
     if not await join(ctx):
@@ -835,7 +691,7 @@ async def play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
 
 
 @slash.subcommand(base="play", subcommand_group="playlist", name="by_url")
-async def play_playlist_by_url(ctx: SlashContext, url: str, index: int = 0, limit: int = 0, randomize: bool = False):
+async def _play_playlist_by_url(ctx: SlashContext, url: str, index: int = 0, limit: int = 0, randomize: bool = False):
 
     await ctx.defer(hidden=True)
 
@@ -1397,10 +1253,10 @@ if __name__ == "__main__":
 
     # TODO Create directories
     # TODO visibility
+    client.set_db(db)
 
     # Run Discord Bot
     client.run(env_var.TOKEN)
 
 # TODO implement cogs
-# TODO repeat
 # TODO upload emojis

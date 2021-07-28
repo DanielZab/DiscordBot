@@ -2,6 +2,7 @@ from sys import intern
 import mysql.connector
 import logging
 import time, os
+from typing import Union
 
 from mysql.connector.errors import Error
 
@@ -157,3 +158,8 @@ class DataBase:
         for i, song in enumerate(queuelist, start=1):
             query = f"UPDATE queuelist SET queue_id={i} WHERE id={song[0]}"
         # TODO Test when many songs in queue
+    
+    def get_url_duplicate(self, url: str) -> list:
+        query = f"SELECT url, path, length FROM queuelist WHERE url='{url}'"
+        result = self.execute(query)
+        return result

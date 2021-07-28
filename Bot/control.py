@@ -170,6 +170,7 @@ class ControlBoard:
 
         await client.delete_queuelist_messages()
 
+        await asyncio.sleep(0.5)
         client.setup()
 
         file_manager.reset_directories()
