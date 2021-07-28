@@ -338,6 +338,19 @@ _quit = {
     "description": "Close the bot (Admin only)"
 }
 
+repeat = {
+    "name": "repeat",
+    "description": "Repeat or stop repeating a song",
+    "options": [
+        {
+            "name": "amount",
+            "description": "How often",
+            "type": 4,
+            "required": False
+        }
+    ]
+}
+
 update = get_update_command()
 
 delete = get_delete_command()
@@ -388,5 +401,5 @@ def update_playlist_commands() -> None:
 
 
 if __name__ == "__main__":
-    update_playlist_commands()
+    pass
 # TODO dynamic url

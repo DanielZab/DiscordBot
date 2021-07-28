@@ -56,7 +56,7 @@ def multiprocess() -> None:
     pass
 
 
-async def try_to_download(url: str) -> tuple:
+async def try_to_download(url: str, target: str) -> tuple:
     '''
     Downloads and normalizes audio
     '''
@@ -74,7 +74,7 @@ async def try_to_download(url: str) -> tuple:
 
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, functools.partial(bestaudio.download,
-                                                           filepath="test\\",
+                                                           filepath="temp\\",
                                                            quiet=True))
 
     except Exception as e:
@@ -89,8 +89,11 @@ async def try_to_download(url: str) -> tuple:
     log.info(f"Path found: {str(path)}")
     
     # Normalize volume of track, move it to the queue folder and get its length
-    loop = asyncio.get_event_loop()  
-    length = await loop.run_in_executor(None, normalizeAudio, "temp\\" + path, "playlists\\" + name + "\\" + path)
+    loop = asyncio.get_event_loop()
+
+    length = await loop.run_in_executor(None, normalizeAudio, "temp\\" + path, target + "\\" + path)
+
+    path = target + r"\\" + path
 
     log.info("Finished downloading")
 

@@ -3,12 +3,15 @@ from discord.ext import commands
 import asyncio
 import logging
 import string_creator
+from discord.ext import tasks
+from ytdl_source import YTDLSource
+from converter import convert_url
 log = logging.getLogger(__name__)
 
 
 class MyClient(commands.Bot):
     '''
-    Extends the discord.Client class in order to add some custom properties
+    Extends the commands.Bot class in order to add some custom properties
     '''
 
     def __init__(self) -> None:
@@ -65,7 +68,7 @@ class MyClient(commands.Bot):
         self.repeat = False
 
         # How often to repeat
-        self.repeat_counter = -1  
+        self.repeat_counter = -1
 
     def vc_check(self) -> bool:
         '''
@@ -92,8 +95,8 @@ class MyClient(commands.Bot):
 
         self.force_stop = False
 
-        import main.check_player
-        main.check_player.start()
+        self.check_player.cancel()
+        self.check_player.start()
     
     def stop(self, force: bool = False):
 
@@ -113,6 +116,32 @@ class MyClient(commands.Bot):
     
     def set_db(self, db) -> None:
         self.db = db
+    
+    def song_done(self, error: Exception) -> None:
+        '''
+        Callback function which gets calles after a song has ended
+        Prints errors if present and starts the next track
+        '''
+        if self.force_stop:
+            log.warning("Force stop")
+            self.queue_counter -= 1
+        elif error:
+            log.error("An error has occurred during playing: " + str(error))
+        else:
+            log.info("The song has ended")
+
+        if not self.repeat:
+            self.queue_counter += 1
+        elif self.repeat_counter > -1:
+            if self.repeat_counter == 0:
+                self.repeat = False
+                self.repeat_counter = -1
+            else:
+                self.repeat_counter -= 1
+            
+        # Play next track
+        self.check_player.cancel()
+        self.check_player.start()
     
     def get_emojis(self) -> None:
         '''
@@ -150,7 +179,7 @@ class MyClient(commands.Bot):
 
         log.info("Updating queuelists")
 
-        query = f"SELECT path, length FROM queuelist WHERE queue_id >= {self.queue_counter} ORDER BY queue_id"
+        query = f"SELECT name, length FROM queuelist WHERE queue_id >= {self.queue_counter} ORDER BY queue_id"
         queuelist = self.db.execute(query)
 
         # Delete all messages if there are no more songs
@@ -212,4 +241,117 @@ class MyClient(commands.Bot):
             new_fields = new_embed.fields
             if len(old_fields) != len(new_fields) or not all(old_fields[e].value == new_fields[e].value for e in range(len(old_fields))):
                 await msg.edit(embed=new_embed)
+    
+    @tasks.loop(count=1)
+    async def check_player(self) -> None:
+        '''
+        Plays the next track, if all conditions are met
+        '''
+
+        log.info("Checking whether to play audio")
+
+        # Check whether connected to voice self
+        if self.vc and not self.force_stop:
+
+            # Bypass steps if boption available
+            if not self.boption:
+
+                # Check whether previous song has ended
+                if self.vc.is_playing() or self.vc.is_paused():
+
+                    log.warning("check_player was called although song hasn't ended yet")
+
+                    return
+
+                # Get index of last song in queuelist
+                index = self.db.get_max_queue_id()
+        
+            # Check if more songs are available. bypass if boption available
+            if self.boption or (index and index >= self.queue_counter):
+                
+                # Get and play next song
+                while True:
+                    try:
+                        db_result = self.db.execute(f"SELECT path, length, url, name FROM queuelist WHERE queue_id = {self.queue_counter}")
+                        path = db_result[0][0]
+                        url = db_result[0][2]
+                        break
+                    except IndexError:
+                        log.warning("Gap in queue_id list!")
+                        self.queue_counter += 1
+                
+                if path == '':
+                    if self.boption:
+                        source = await YTDLSource.from_url(url, loop=self.loop, before_options=self.boption, stream=True)
+
+                    else:
+                        source = await YTDLSource.from_url(url, loop=self.loop, stream=True)
+
+                else:
+                    log.info("Playing downloaded song")
+                    if self.boption:
+                        source = discord.FFmpegOpusAudio(
+                            path,
+                            before_options=self.boption
+                        )
+
+                    else:
+                        source = discord.FFmpegOpusAudio(path)
+
+                self.boption = False
+                # Reset song timer
+                self.song_timer = 0
+
+                await asyncio.sleep(0.5)
+                # Play song
+                log.info("Playing song")
+                self.vc.play(source, after=self.song_done)
+
+                # Stop waiting if was waiting
+                self.waiting = False
+
+                # Get name of current track
+                self.current_track_name = db_result[0][3]
+                
+                # Set track duration in self
+                self.current_track_duration = db_result[0][1]
+
+                # Set track thumbnail
+                _id = convert_url(db_result[0][2], id_only=True)
+                self.current_thumbnail = f"https://i.ytimg.com/vi/{_id}/mqdefault.jpg"
+
+            else:
+
+                log.info(f"No more tracks available! Current index: {index}, current queuecounter: {self.queue_counter}")
+
+                # Wait for next track
+                self.waiting = True
+                self.reset_current_song_data()
+
+                # Update control board message
+                await self.send_updated_control_board_messages()
+            
+            # Update self queue messages
+            await self.update_queuelist_messages()
+
+        elif self.force_stop:
+            log.warning("Player currently stopped")
+
+        else:
+            log.warning("Not connected to voice channel")
+        
+    @tasks.loop(seconds=0.5)
+    async def update_duration(self):
+
+        # TODO test other method
+        # Add half a second to the duration timer if the player is currently playing
+        if self.vc and self.vc.is_playing():
+            self.song_timer += 0.5
+
+            # Check if current song timer is at a whole number and whether the name of the song is available
+            if round(self.song_timer * 2) % 2 == 0 and self.current_track_name:
+                
+                if len(self.control_board_messages):
+
+                    await self.send_updated_control_board_messages()
     

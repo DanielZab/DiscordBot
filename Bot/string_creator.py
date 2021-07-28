@@ -7,7 +7,7 @@ log = logging.getLogger(__name__)
 
 def create_queue_string(queuelist: list, amount: int) -> list:
 
-    from main import get_name_from_path, convert_time
+    from main import convert_time
 
     # Create containers
     msg_list = []
@@ -18,10 +18,8 @@ def create_queue_string(queuelist: list, amount: int) -> list:
     for i, entry in enumerate(queuelist):
 
         # Prepare and convert the database entries
-        name = get_name_from_path(entry[0])
+        name = entry[0]
 
-        if not name:
-            name = str(entry[0])
 
         length = convert_time(int(entry[1]))
         length = f"{str(length[0]) + ':' if length[0] else ''}{str(length[1]).zfill(2)}:{str(length[2]).zfill(2)}"
@@ -43,6 +41,7 @@ def create_queue_string(queuelist: list, amount: int) -> list:
         
         if amount == i:
             msg_list.append(new_msg)
+            new_msg = ""
             break
         
         elif i % 20 == 0 and i != 0:

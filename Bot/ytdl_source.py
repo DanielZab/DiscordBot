@@ -16,11 +16,20 @@ ytdl_format_options = {
     'source_address': '0.0.0.0' # bind to ipv4 since ipv6 addresses cause issues sometimes
 }
 
+ytdl_format_options = {
+    'format': 'bestaudio/best',
+    'quiet': True
+}
+
+ffmpeg_options = {
+    'options': '-vn',
+}
+
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 
 
 class YTDLSource(discord.PCMVolumeTransformer):
-    def __init__(self, source, *, data, volume=0.3):
+    def __init__(self, source, *, data, volume=0.1):
         super().__init__(source, volume)
 
         self.data = data
@@ -33,9 +42,10 @@ class YTDLSource(discord.PCMVolumeTransformer):
         loop = loop or asyncio.get_event_loop()
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
 
-        if 'entries' in data:
-            # take first item from a playlist
-            data = data['entries'][0]
-
         filename = data['url'] if stream else ytdl.prepare_filename(data)
-        return cls(discord.FFmpegPCMAudio(filename, before_options=before_options, options="-vn"), data=data)
+        boptions = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+
+        if before_options:
+            boptions += before_options
+
+        return cls(discord.FFmpegPCMAudio(filename, before_options=boptions, **ffmpeg_options), data=data)

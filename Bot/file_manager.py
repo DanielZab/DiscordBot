@@ -10,10 +10,13 @@ def delete_directory(direc):
 
 def reset_directories():
 
+    delete_directory('queue')
+    os.mkdir('queue')
+
     delete_directory('temp')
     os.mkdir('temp')
 
-    log.info("Temp was reset")
+    log.info("Directory reset complete")
 
 
 def create_playlist_directory(name: str):
