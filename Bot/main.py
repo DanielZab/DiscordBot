@@ -2,7 +2,6 @@
 
 # High priority imports
 import logging
-from platform import release
 
 from discord import embeds
 from discord_slash.model import SlashMessage
