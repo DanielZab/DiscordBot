@@ -1,18 +1,19 @@
 import discord
+from discord.ext import commands
 import asyncio
 import logging
 import string_creator
 log = logging.getLogger(__name__)
 
 
-class MyClient(discord.Client):
+class MyClient(commands.Bot):
     '''
     Extends the discord.Client class in order to add some custom properties
     '''
 
     def __init__(self) -> None:
 
-        super().__init__()
+        super().__init__("!")
         self.setup()
     
     def setup(self) -> None:
@@ -29,9 +30,6 @@ class MyClient(discord.Client):
 
         # Lock which guarantees exclusive access to a shared resource
         self.lock = asyncio.Lock()
-
-        # To download in between of songs
-        self.placeholders = []  # FIXME
 
         # A list of emojis representing numbers
         self.emoji_list = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🚫']
@@ -115,6 +113,38 @@ class MyClient(discord.Client):
     
     def set_db(self, db) -> None:
         self.db = db
+    
+    def get_emojis(self) -> None:
+        '''
+        Gets custom emojis for certain methods
+        '''
+
+        # Get control board emojis if available and named correctly
+        emoji_list = self.emojis
+
+        # Define defaults
+        rewind, play, forward, back, stop, skip = "⏪", "⏯", "⏩", "⏮", "⏹", "⏭"
+
+        for emoji in emoji_list:
+            if emoji.name == "botRewind":
+                rewind = emoji
+            if emoji.name == "botPlay":
+                play = emoji
+            if emoji.name == "botForward":
+                forward = emoji
+            if emoji.name == "botBack":
+                back = emoji
+            if emoji.name == "botStop":
+                stop = emoji
+            if emoji.name == "botSkip":
+                skip = emoji
+
+        self.custom_emojis["rewind"] = rewind
+        self.custom_emojis["play"] = play
+        self.custom_emojis["forward"] = forward
+        self.custom_emojis["back"] = back
+        self.custom_emojis["stop"] = stop
+        self.custom_emojis["skip"] = skip
 
     async def update_queuelist_messages(self) -> None:
 
@@ -182,3 +212,4 @@ class MyClient(discord.Client):
             new_fields = new_embed.fields
             if len(old_fields) != len(new_fields) or not all(old_fields[e].value == new_fields[e].value for e in range(len(old_fields))):
                 await msg.edit(embed=new_embed)
+    

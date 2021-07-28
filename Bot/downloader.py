@@ -13,7 +13,7 @@ def download_audio_manually(url) -> None:
     log.debug(output.decode("utf-8"))
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': "./test/%(title)s.%(ext)s",
+        'outtmpl': "./temp/%(title)s.%(ext)s",
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'm4a',
@@ -56,10 +56,16 @@ def multiprocess() -> None:
     pass
 
 
-async def try_to_download(url: str) -> None:
+async def try_to_download(url: str) -> tuple:
+    '''
+    Downloads and normalizes audio
+    '''
 
     # Download audio
     log.info("Starting download process")
+
+    # Get all files in temp directory
+    files = os.listdir("temp")
 
     try:
         # TODO Multiprocessing
@@ -76,5 +82,16 @@ async def try_to_download(url: str) -> None:
         log.error("Pafy failed downloading: " + str(e))
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, download_audio_manually, url)
+    
+    # Get path of downloaded file by getting all files in test directory
+    # and removing all files that already were there
+    path = list(set(os.listdir("temp")).difference(set(files)))[0]
+    log.info(f"Path found: {str(path)}")
+    
+    # Normalize volume of track, move it to the queue folder and get its length
+    loop = asyncio.get_event_loop()  
+    length = await loop.run_in_executor(None, normalizeAudio, "temp\\" + path, "playlists\\" + name + "\\" + path)
 
     log.info("Finished downloading")
+
+    return path, length

@@ -25,6 +25,9 @@ import file_manager
 # Music downloader
 from downloader import normalizeAudio, try_to_download
 
+# Converter
+from converter import convert_time, convert_url, format_time_ffmpeg, get_name_from_path
+
 # MyClient class
 from my_client import MyClient
 
@@ -54,6 +57,7 @@ from ytdl_source import YTDLSource
 
 # Import logger
 log = logging.getLogger(__name__)
+print(log)
 log.info("All modules have been imported")
 # endregion
 
@@ -63,9 +67,9 @@ client = MyClient()
 slash = SlashCommand(client)
 
 
-def get_length(url, convert=True) -> int:
+def get_length(url, convert=True) -> Union[int, str]:
     '''
-    Gets length of video using youtube-dl
+    Gets length of video using youtube-dl in seconds unless convert is False
     '''
 
     log.info(f"Getting length of {url}")
@@ -83,33 +87,7 @@ def get_length(url, convert=True) -> int:
         seconds = int(match.group("s") or 0)
         result = hours * 3600 + minutes * 60 + seconds
     
-    return int(result)
-
-
-def convert_url(url: str, id_only: bool = False, playlist: bool = False) -> str:
-    '''
-    Convert youtube url to a uniform format
-    '''
-
-    log.info("Converting url")
-
-    # Match id
-    if playlist:
-        match = re.match(r"^https?://(www\.)?youtube\.[a-zA-Z0-9]{2,4}.*l(ist)?=(?P<id>[^#&?%\s]+).*$", url)
-    else:
-        match = re.match(r"^https?://(?:www\.|m\.)?youtu(?:.*\.[A-Za-z0-9]{2,4}.*(?:/user/\w+#p(?:/a)?/u/\d+/|/e(?:mbed)?/|/vi?/|(watch\?)?vi?(?:=|%))|\.be/)(3D)?(?P<id>[^#&?%\s]+).*$", url)
-
-    if match:
-
-        if id_only:
-            return match.group('id')
-        result = f"https://www.youtube.com/watch?v={match.group('id')}"
-        log.info(f"Converted to: {result}")
-        return result
-
-    else:
-        log.error("Invalid url")
-        raise ValueError
+    return result
 
 
 def song_done(error: Exception) -> None:
@@ -134,81 +112,8 @@ def song_done(error: Exception) -> None:
         else:
             client.repeat_counter -= 1
         
-
     # Play next track
     check_player.start()
-
-
-def get_emojis() -> None:
-    '''
-    Gets custom emojis for certain methods
-    '''
-
-    # Get control board emojis if available and named correctly
-    emoji_list = client.emojis
-
-    # Define defaults
-    rewind, play, forward, back, stop, skip = "⏪", "⏯", "⏩", "⏮", "⏹", "⏭"
-
-    for emoji in emoji_list:
-        if emoji.name == "botRewind":
-            rewind = emoji
-        if emoji.name == "botPlay":
-            play = emoji
-        if emoji.name == "botForward":
-            forward = emoji
-        if emoji.name == "botBack":
-            back = emoji
-        if emoji.name == "botStop":
-            stop = emoji
-        if emoji.name == "botSkip":
-            skip = emoji
-
-    client.custom_emojis["rewind"] = rewind
-    client.custom_emojis["play"] = play
-    client.custom_emojis["forward"] = forward
-    client.custom_emojis["back"] = back
-    client.custom_emojis["stop"] = stop
-    client.custom_emojis["skip"] = skip
-
-
-def convert_time(s: int) -> tuple:
-    '''
-    Converts time from seconds to hours, minutes and seconds
-    '''
-    hours, s = divmod(s, 3600)
-    mins, sec = divmod(s, 60)
-
-    return int(hours), int(mins), int(sec)
-
-
-def format_time_ffmpeg(s: int) -> str:
-    '''
-    Converts seconds to a ffmpeg time format
-    '''
-
-    t = convert_time(s)
-
-    return "{:02d}:{:02d}:{:02d}".format(t[0], t[1], t[2])
-
-
-def get_name_from_path(path) -> str:
-    '''
-    Gets the name of a song from its path
-    '''
-
-    match = re.match(r"^[^\\]*\\(\\)?([a-zA-Z0-9]+\\(\\)?)?(?P<name>.*)\.[a-zA-Z0-9]{2,4}$", path)
-
-    if match:
-
-        name = match.group("name")
-        log.info(f"Got name: {name}")
-        return name
-
-    else:
-
-        log.warning("Couldn't get name from path {path}")
-        return None
 
 
 def check_index(index) -> int:
@@ -302,11 +207,13 @@ async def join(ctx: SlashContext) -> bool:
 
 async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: Union[bool, dict] = False) -> bool:
     '''
-    Downloads audio and adds it to the queue
+    Adds audio to queuelist
     '''
 
-    # Check if file is already downloaded
+    # Check if file data was passed
     if not file_data:
+
+        # Get missing file data
         path = ''
         length = get_length(url)
 
@@ -331,11 +238,13 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
 
         check_player.start()
     
-    return path
+    return yt.get_name(url)
 
 
-async def play_audio(ctx: SlashContext, url: str, index: int, silent: bool = False) -> None:
-
+async def play_audio(ctx: SlashContext, url: str, index: int) -> None:
+    '''
+    Checks if url is valid and adds the track to the queuelist
+    '''
 
     # Check if url is valid
     try:
@@ -343,39 +252,22 @@ async def play_audio(ctx: SlashContext, url: str, index: int, silent: bool = Fal
 
     except ValueError:
 
-        await check_silent_and_send(ctx, "Invalid url", silent)
+        await ctx.send("Invalid url")
         return
 
     # If index is too high, set to 0
     # This adds the song to the end of the queue
     index = check_index(index)
 
-    result = await add_to_queue(ctx, url, index)
+    # Add to queuelist
+    try:
+        result = await add_to_queue(ctx, url, index)
+        await ctx.send(f"{result} was added to the queue")
 
-    if result:
+    except Exception as e:
 
-        await check_silent_and_send(ctx, f"{get_name_from_path(result)} added to the queue", silent)
-
-    elif not result:
-
-        await check_silent_and_send(ctx, "Something went wrong", silent)
-
-
-async def check_silent_and_send(ctx: SlashContext, msg: str,  silent: bool, hidden: bool = False, delete_after: int = 0):
-    '''
-    Sends message if silent parameter is false
-    '''
-
-    if not silent:
-
-        if delete_after:
-
-            await ctx.send(msg, hidden=hidden, delete_after=delete_after)
-        
-        else:
-
-            await ctx.send(msg, hidden=hidden)
-
+        await ctx.send("Something went wrong")
+        log.error("Couldn't add to queuelist " + str(e))
 
 
 @slash.subcommand(base="play", subcommand_group='video', name="by_name")
@@ -385,6 +277,7 @@ async def _play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: in
     '''
 
     await ctx.defer()
+
     # Join channel
     if not await join(ctx):
 
@@ -477,8 +370,6 @@ async def _play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
     Plays the youtube video with the corresponding url
     '''
 
-    await ctx.defer()
-
     # Join channel
     if not await join(ctx):
 
@@ -490,7 +381,7 @@ async def _play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
 @slash.subcommand(base="play", subcommand_group="playlist", name="by_url")
 async def _play_playlist_by_url(ctx: SlashContext, url: str, index: int = 0, limit: int = 0, randomize: bool = False):
 
-    await ctx.defer(hidden=True)
+    await ctx.defer()
 
     # Join channel
     if not await join(ctx):
@@ -520,11 +411,15 @@ async def _play_playlist_by_url(ctx: SlashContext, url: str, index: int = 0, lim
     if limit and limit < len(urls):
 
         urls = urls[:limit]
+    
+    # If index is too high, set to 0
+    # This adds the song to the end of the queue
+    index = check_index(index)
 
     for song_url in urls:
 
         # Add song to queue
-        await play_audio(ctx, song_url, index, silent=True)
+        await add_to_queue(ctx, song_url, index=index)
 
         # Increase index if given
         if index:
@@ -778,19 +673,8 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
             try:
 
                 await client.lock.acquire()
-                # Get all files in test directory
-                files = os.listdir("test")
-
-                await try_to_download(url)
-
-                # Get path of downloaded file by getting all files in test directory
-                # and removing all files that already were there
-                path = list(set(os.listdir("test")).difference(set(files)))[0]
-                log.info(f"Path found: {str(path)}")
                 
-                # Normalize volume of track, move it to the queue folder and get its length
-                loop = asyncio.get_event_loop()  
-                length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "playlists\\" + name + "\\" + path)
+                path, length = await try_to_download(url)
 
                 # Change path to queue directory
                 path = r"playlists\\" + name + r"\\" + path
@@ -880,7 +764,7 @@ async def on_ready() -> None:
 
         hide.hide()
 
-    get_emojis()
+    client.get_emojis()
 
     update_duration.start()
     # TODO:Change status
@@ -919,7 +803,6 @@ async def check_player() -> None:
     Plays the next track, if all conditions are met
     '''
 
-    # TODO test placeholders
 
     log.info("Checking whether to play audio")
 
@@ -935,12 +818,6 @@ async def check_player() -> None:
                 log.warning("check_player was called although song hasn't ended yet")
 
                 return
-
-            # Download placeholders
-            if len(client.placeholders) > 0:
-                for ctx, url, _id in client.placeholders:
-                    await add_to_queue(ctx, url, index=0, update=_id)
-                    await ctx.send("Your previous track was downloaded")
 
             # Get index of last song in queuelist
             index = db.get_max_queue_id()
@@ -959,14 +836,24 @@ async def check_player() -> None:
                     log.warning("Gap in queue_id list!")
                     client.queue_counter += 1
             
-            if client.boption:
-                source = await YTDLSource.from_url(url, before_options=client.boption, stream=True)
-                client.boption = None
+            if path == '':
+                if client.boption:
+                    source = await YTDLSource.from_url(url, before_options=client.boption, stream=True)
+                    client.boption = None
+
+                else:
+                    source = await YTDLSource.from_url(url, stream=True)
 
             else:
-                source = await YTDLSource.from_url(url, stream=True)
+                if client.boption:
+                    source = discord.FFmpegOpusAudio(
+                        path,
+                        before_options=client.boption
+                    )
+                    client.boption = None
 
-            
+                else:
+                    source = discord.FFmpegOpusAudio(path)
 
             # Reset song timer
             client.song_timer = 0
@@ -978,13 +865,12 @@ async def check_player() -> None:
             client.waiting = False
 
             # Get name of current track
-            name = get_name_from_path(path)
-
-            if name:
-                client.current_track_name = name
-            
+            if path == '':
+                name = yt.get_name(url)
             else:
-                client.current_track_name = path
+                name = get_name_from_path(path)
+
+            client.current_track_name = name
             
             # Set track duration in client
             client.current_track_duration = db_result[0][1]

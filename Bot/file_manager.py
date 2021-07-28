@@ -7,17 +7,14 @@ def delete_directory(direc):
     if os.path.exists(direc) and os.path.isdir(direc):
         shutil.rmtree(direc)
 
+
 def reset_directories():
-    
-    delete_directory('queue')
-    os.mkdir('queue')
 
-    log.info("Queue was reset")
+    delete_directory('temp')
+    os.mkdir('temp')
 
-    delete_directory('test')
-    os.mkdir('test')
+    log.info("Temp was reset")
 
-    log.info("Test was reset")
 
 def create_playlist_directory(name: str):
 

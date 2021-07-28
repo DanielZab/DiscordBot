@@ -1,9 +1,4 @@
 import logging
-import os
-
-# Delete previous debug log
-if os.path.exists("debug.log"):
-    os.remove("debug.log")
 
 # Initialize logger
 FORMAT = '[%(levelname)s] - %(asctime)s: %(message)s'
