@@ -2,12 +2,11 @@
 
 # High priority imports
 import logging
-from platform import release
+import hide
 
 from discord import embeds
 from discord_slash.model import SlashMessage
-import logger
-import hide
+
 
 # Audio file imports
 from pydub import AudioSegment
@@ -15,13 +14,16 @@ import audioread
 from pydub.utils import which
 
 # Environment variables
-from dotenv import load_dotenv
+from env_vars import EnvVariables
 
 # Database connection
 from database import DataBase
 
 # File manager
 import file_manager
+
+# Music downloader
+from downloader import normalizeAudio, try_to_download
 
 # MyClient class
 from my_client import MyClient
@@ -36,7 +38,7 @@ import control
 import slashcommands
 
 # Standard library imports
-import os, shutil, datetime, sys, random, time, math, re, functools
+import os, shutil, datetime, sys, random, time, math, re
 
 # Google and Discord api imports
 import discord
@@ -47,7 +49,8 @@ from youtube import YouTube
 # Other imports
 import lyricsgenius, psutil, asyncio, subprocess, youtube_dl
 from typing import Union
-import pafy
+from ytdl_source import YTDLSource
+
 
 # Import logger
 log = logging.getLogger(__name__)
@@ -55,75 +58,9 @@ log.info("All modules have been imported")
 # endregion
 
 
-# region classes
-class EnvVariables():
-    '''
-    Container for all environment variables
-    '''
-    def __init__(self) -> None:
-
-        load_dotenv()
-        # load all environment variables
-        self.GENIUS_TOKEN = os.getenv('GENIUS_ACCESS_TOKEN')
-        self.TOKEN = os.getenv('DISCORD_TOKEN')
-        self.DEVELOPER_KEY = os.getenv('YOUTUBE_API_KEY')
-        self.AUTO_HIDE = os.getenv('AUTO_HIDE')
-        self.SQL_USER = os.getenv('MYSQL_USER')
-        self.SQL_PW = os.getenv('MYSQL_PW')
-        self.ADMIN_ROLE_ID = os.getenv('ADMIN_ROLE_ID')
-
-
-class AudioFile:
-    '''
-    Stores data of a single audio file
-    '''
-    def __init__(self,
-                 name: str,
-                 url: str,
-                 length,
-                 path: str,
-                 downloaded: bool,
-                 id: int,
-                 queue_id: int,
-                 boption) -> None:
-
-        self.name = name
-        self.url = url
-        self.length = length
-        self.path = path
-        self.downloaded = downloaded
-        self.boption = boption
-        self.id = id
-        self.queue_id = int
-
-
-# endregion
-
-
 # Assign slash command client
 client = MyClient()
 slash = SlashCommand(client)
-
-
-def download_audio_manually(url) -> None:
-
-    # Download audio into specific test folder
-    output = subprocess.run(f'youtube-dl -F {url}', capture_output=True).stdout
-    log.debug(output.decode("utf-8"))
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': "./test/%(title)s.%(ext)s",
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'm4a',
-            'preferredquality': '192'
-        }]
-    }
-
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    #msg = f'youtube-dl -o "./test/%(title)s.%(ext)s" --extract-audio --format best {url}'
-    #os.system(msg)
 
 
 def get_length(url, convert=True) -> int:
@@ -146,7 +83,7 @@ def get_length(url, convert=True) -> int:
         seconds = int(match.group("s") or 0)
         result = hours * 3600 + minutes * 60 + seconds
     
-    return result
+    return int(result)
 
 
 def convert_url(url: str, id_only: bool = False, playlist: bool = False) -> str:
@@ -173,31 +110,6 @@ def convert_url(url: str, id_only: bool = False, playlist: bool = False) -> str:
     else:
         log.error("Invalid url")
         raise ValueError
-
-
-def normalizeAudio(audiopath: str, destination_path: str) -> None:
-    '''
-    Changes the volume of the track to a uniform one
-    Returns the length of the track in seconds
-    '''
-    log.info(f"Normalizing {audiopath}")
-    # Get song with pydub
-    song = AudioSegment.from_file(audiopath)
-
-    # Normalize sound
-    loudness = song.dBFS
-    quieterAudio = 40 + loudness
-    song = song - quieterAudio
-
-    # Export song to new path
-    song.export(destination_path, 'webm')
-
-    # Remove old track
-    os.remove(audiopath)
-
-    log.info(f"Normalized {audiopath}")
-    # Return length of song
-    return song.duration_seconds
 
 
 def song_done(error: Exception) -> None:
@@ -388,96 +300,19 @@ async def join(ctx: SlashContext) -> bool:
     return False
 
 
-async def try_to_download(url: str) -> None:
-
-    # Download audio
-    log.info("Starting download process")
-
-    try:
-        # TODO Duplicates
-        # TODO Multiprocessing
-        vid = pafy.new(url)
-        bestaudio = vid.getbestaudio(preftype="webm")
-
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, functools.partial(bestaudio.download,
-                                                        filepath="test\\",
-                                                        quiet=True))
-
-    except Exception as e:
-
-        log.error("Pafy failed downloading: " + str(e))
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, download_audio_manually, url)
-
-    log.info("Finished downloading")
-
-
-async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int = 0, file_data: Union[bool, dict] = False) -> bool:
+async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: Union[bool, dict] = False) -> bool:
     '''
     Downloads audio and adds it to the queue
     '''
 
-    # Block all processes but one
-    await client.lock.acquire()
-
     # Check if file is already downloaded
     if not file_data:
-
-        duplicates = db.get_url_duplicate(url)
-        if len(duplicates):
-
-            url = duplicates[0][0]
-            path = duplicates[0][1]
-            length = duplicates[0][2]
-            log.info("Song was lalready downloaded previously, skipping download")
-        
-        else:
-
-            # Try to download
-            try:
-
-                # Check if video is longer than 10 minutes
-                temp_length = get_length(url)
-                if temp_length > 600 and not client.waiting and not update:
-
-                    # Download audio later
-                    await ctx.send("The video is longer than 10 minutes, I'll download it after the current track", hidden=True)
-                    path = "Placeholder"
-                    length = temp_length
-                    log.info(f"Video length exceeds 10 minutes: {length / 60}")
-
-                else:
-
-                    # Get all files in test directory
-                    files = os.listdir("test")
-
-                    await try_to_download(url)
-
-                    # Get path of downloaded file by getting all files in test directory
-                    # and removing all files that already were there
-                    path = list(set(os.listdir("test")).difference(set(files)))[0]
-                    log.info(f"Path found: {str(path)}")
-                    
-                    # Normalize volume of track, move it to the queue folder and get its length
-                    loop = asyncio.get_event_loop() 
-                    length = await loop.run_in_executor(None, normalizeAudio, "test\\" + path, "queue\\" + path)
-
-                    # Change path to queue directory
-                    path = "queue\\\\" + path
-
-            except Exception as e:
-
-                log.error("Failed downloading. Error: " + str(e))
-
-                client.lock.release()
-
-                return False
+        path = ''
+        length = get_length(url)
 
     else: 
         
         # Get data from previously downloaded file
-        url = file_data["url"]
         path = file_data["path"]
         length = file_data["length"]
 
@@ -488,22 +323,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int 
 
         db.move_entries(index)
 
-    client.lock.release()
-
-    if update:
-
-        db.execute(f"UPDATE queuelist SET path='{path}' WHERE id={update}")
-
-        return get_name_from_path(path)
-
-    else:
-        # Insert track details into database/queuelist
-        db.insert_into_queue(index, url, length, path)
-
-    if path == "Placeholder":
-
-        _id = int(db.execute(f"SELECT id FROM queuelist WHERE index = {index}")[0][0])
-        client.placeholders.append((ctx, url, _id))
+    db.insert_into_queue(index, url, length, path)
 
     if client.waiting:
 
@@ -516,35 +336,27 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, update: int 
 
 async def play_audio(ctx: SlashContext, url: str, index: int, silent: bool = False) -> None:
 
-    if url:
 
-        # Check if url is valid
-        try:
-            url = convert_url(url)
+    # Check if url is valid
+    try:
+        url = convert_url(url)
 
-        except ValueError:
+    except ValueError:
 
-            await check_silent_and_send(ctx, "Invalid url", silent)
-            return
+        await check_silent_and_send(ctx, "Invalid url", silent)
+        return
 
-        # Download audio
-        await check_silent_and_send(ctx, "Downloading audio", silent)
+    # If index is too high, set to 0
+    # This adds the song to the end of the queue
+    index = check_index(index)
 
-        # If index is too high, set to 0
-        # This adds the song to the end of the queue
-        index = check_index(index)
+    result = await add_to_queue(ctx, url, index)
 
-        result = await add_to_queue(ctx, url, index)
+    if result:
 
-        if result and not result == "Placeholder":
+        await check_silent_and_send(ctx, f"{get_name_from_path(result)} added to the queue", silent)
 
-            await check_silent_and_send(ctx, f"{get_name_from_path(result)} added to the queue", silent)
-
-        elif not result:
-
-            await check_silent_and_send(ctx, "Something went wrong", silent)
-
-    else:
+    elif not result:
 
         await check_silent_and_send(ctx, "Something went wrong", silent)
 
@@ -563,21 +375,6 @@ async def check_silent_and_send(ctx: SlashContext, msg: str,  silent: bool, hidd
         else:
 
             await ctx.send(msg, hidden=hidden)
-
-
-async def send_updated_control_board_messages():
-    # Create string
-    new_embed = string_creator.create_control_board_message_string(
-        name=client.current_track_name,
-        song_timer=int(client.song_timer),
-        track_duration=int(client.current_track_duration),
-        url=client.current_thumbnail
-    )
-    for msg in client.control_board_messages:
-        old_fields = msg.embeds[0].fields
-        new_fields = new_embed.fields
-        if len(old_fields) != len(new_fields) or not all(old_fields[e].value == new_fields[e].value for e in range(len(old_fields))):
-            await msg.edit(embed=new_embed)
 
 
 
@@ -765,13 +562,12 @@ async def _play_playlist_by_name(ctx: SlashContext, name: str, index: int = 0, l
         
         # Put song data into a dictionary
         song_data = {
-            "url": song[0],
             "path": song[1].replace("\\", "\\\\"),
             "length": song[2]
         }
 
         # Add song to queue
-        await add_to_queue(ctx, "", index=index, file_data=song_data)
+        await add_to_queue(ctx, song[0], index=index, file_data=song_data)
 
         # Increase index by one if active
         if index:
@@ -1157,20 +953,20 @@ async def check_player() -> None:
                 try:
                     db_result = db.execute(f"SELECT path, length, url FROM queuelist WHERE queue_id = {client.queue_counter}")
                     path = db_result[0][0]
+                    url = db_result[0][2]
                     break
                 except IndexError:
                     log.warning("Gap in queue_id list!")
                     client.queue_counter += 1
             
             if client.boption:
-                source = discord.FFmpegOpusAudio(
-                    path,
-                    before_options=client.boption
-                )
+                source = await YTDLSource.from_url(url, before_options=client.boption, stream=True)
                 client.boption = None
 
             else:
-                source = discord.FFmpegOpusAudio(path)
+                source = await YTDLSource.from_url(url, stream=True)
+
+            
 
             # Reset song timer
             client.song_timer = 0
@@ -1206,7 +1002,7 @@ async def check_player() -> None:
             client.reset_current_song_data()
 
             # Update control board message
-            await send_updated_control_board_messages()
+            await client.send_updated_control_board_messages()
         
         # Update client queue messages
         await client.update_queuelist_messages()
@@ -1231,7 +1027,7 @@ async def update_duration():
             
             if len(client.control_board_messages):
 
-                await send_updated_control_board_messages()
+                await client.send_updated_control_board_messages()
 
 if __name__ == "__main__":
 

@@ -168,3 +168,17 @@ class MyClient(discord.Client):
 
         for message in self.control_board_messages:
             await message.delete()
+    
+    async def send_updated_control_board_messages(self):
+        # Create string
+        new_embed = string_creator.create_control_board_message_string(
+            name=self.current_track_name,
+            song_timer=int(self.song_timer),
+            track_duration=int(self.current_track_duration),
+            url=self.current_thumbnail
+        )
+        for msg in self.control_board_messages:
+            old_fields = msg.embeds[0].fields
+            new_fields = new_embed.fields
+            if len(old_fields) != len(new_fields) or not all(old_fields[e].value == new_fields[e].value for e in range(len(old_fields))):
+                await msg.edit(embed=new_embed)

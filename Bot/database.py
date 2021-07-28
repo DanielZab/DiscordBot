@@ -159,7 +159,3 @@ class DataBase:
             query = f"UPDATE queuelist SET queue_id={i} WHERE id={song[0]}"
         # TODO Test when many songs in queue
     
-    def get_url_duplicate(self, url: str) -> list:
-        query = f"SELECT url, path, length FROM queuelist WHERE url='{url}'"
-        result = self.execute(query)
-        return result
