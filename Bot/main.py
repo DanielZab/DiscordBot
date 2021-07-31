@@ -252,8 +252,8 @@ async def play_audio(ctx: SlashContext, url: str, index: int) -> None:
         log.error("Couldn't add to queuelist " + str(e))
 
 
-@slash.subcommand(base="play", subcommand_group='video', name="by_name")
-async def _play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: int = 0) -> None:
+@slash.slash(name="play")
+async def _play(ctx: SlashContext, name: str = None, url: str = None, amount: int = 1, index: int = 0) -> None:
     '''
     Performs a youtube search with the given keywords and plays its audio
     '''
@@ -265,199 +265,191 @@ async def _play_by_name(ctx: SlashContext, name: str, amount: int = 1, index: in
 
         return
 
-    # Check if number of videos to search is below zero
-    if amount < 1:
-
-        await ctx.send("Very funny!")
-
-    elif amount == 1:
-
-        # Perform youtube search
-        url = await yt.get_search(name)
-        url = url[0]
-
+    # Play url if given
+    if url:
         await play_audio(ctx, url, index)
-
-    else:
-
-        await ctx.send("Searching", hidden=True)
-
-        # Limit amount to 9
-        amount = 9 if amount > 9 else amount
-
-        # Get list of youtube urls
-        urls = await yt.get_search(name, amount=amount)
-
-        # Create message
-        msg = "These are the results:"
-        for i, url in enumerate(urls):
-
-            # Get length of video
-            length = get_length(url, convert=False).replace("\n", "")
-
-            # Get id of video
-            _id = convert_url(url, id_only=True)
-
-            # Get name of video
-            title = yt.get_name(_id)
-
-            msg += f"\n\t{i + 1}: {title} ({length})"
-        
-        msg = await ctx.send(msg)
-
-        # Add reactions so the member can choose a song
-        for i in range(amount):
-            await msg.add_reaction(client.emoji_list[i])
-        
-        # Add the cancel emoji
-        await msg.add_reaction(client.emoji_list[-1])
-
-        # Define criteria that must be met for the reaction to be accepted
-        def check(r, u):
-            log.info(f"Got response: {str(r)}. ({str(r) in client.emoji_list}, {ctx.author.id == u.id}, {r.message.id == msg.id})")
-            return str(r) in client.emoji_list and ctx.author.id == u.id and r.message.id == msg.id
-
-        # Wait for reaction
-        try:
-
-            log.info("Waiting for reaction")
-            reaction, user = await client.wait_for('reaction_add', check=check, timeout=200)
-        
-        except TimeoutError:
-
-            log.warning("No reaction has been made")
-            return
-
-        log.info(f"Rection received: {reaction} by {user}")
-        
-        # Get index of emoji in emoji_list
-        emoji_index = client.emoji_list.index(str(reaction))
-
-        # Check if it is the cancel emoji
-        if emoji_index == len(client.emoji_list) - 1:
-
-            await ctx.send("Download was cancelled")
-            return
-
-        video = urls[emoji_index]
-
-        log.info(f"{video} was chosen")
-
-        await play_audio(ctx, video, index)
-
-
-@slash.subcommand(base="play", subcommand_group='video', name="by_url")
-async def _play_by_url(ctx: SlashContext, url: str, index: int = 0) -> None:
-    '''
-    Plays the youtube video with the corresponding url
-    '''
-
-    await ctx.defer()
-
-    # Join channel
-    if not await join(ctx):
-
-        return
-
-    await play_audio(ctx, url, index)
-
-
-@slash.subcommand(base="play", subcommand_group="playlist", name="by_url")
-async def _play_playlist_by_url(ctx: SlashContext, url: str, index: int = 0, limit: int = 0, randomize: bool = False):
-
-    await ctx.defer()
-
-    # Join channel
-    if not await join(ctx):
-
-        return
-
-    # Check if url is valid and extract id
-    try:
-        url = convert_url(url, id_only=True, playlist=True)
-
-    except ValueError:
-
-        await ctx.send("Invalid url")
-
-        return
-
-    await ctx.send("Preparing playlist", hidden=True)
-
-    urls = await yt.get_playlist_contents(url)
-
-    # Shuffle list if desired
-    if randomize:
-
-        random.shuffle(urls)
-
-    # Shorten the list
-    if limit and limit < len(urls):
-
-        urls = urls[:limit]
     
-    # If index is too high, set to 0
-    # This adds the song to the end of the queue
-    index = check_index(index)
+    elif name:
 
-    for song_url in urls:
+        # Check if number of videos to search is below zero
+        if amount < 1:
 
-        try:
+            await ctx.send("Very funny!")
+
+        elif amount == 1:
+
+            # Perform youtube search
+            url = await yt.get_search(name)
+            url = url[0]
+
+            await play_audio(ctx, url, index)
+
+        else:
+
+            await ctx.send("Searching", hidden=True)
+
+            # Limit amount to 9
+            amount = 9 if amount > 9 else amount
+
+            # Get list of youtube urls
+            urls = await yt.get_search(name, amount=amount)
+
+            # Create message
+            msg = "These are the results:"
+            for i, url in enumerate(urls):
+
+                # Get length of video
+                length = get_length(url, convert=False).replace("\n", "")
+
+                # Get id of video
+                _id = convert_url(url, id_only=True)
+
+                # Get name of video
+                title = yt.get_name(_id)
+
+                msg += f"\n\t{i + 1}: {title} ({length})"
+            
+            msg = await ctx.send(msg)
+
+            # Add reactions so the member can choose a song
+            for i in range(amount):
+                await msg.add_reaction(client.emoji_list[i])
+            
+            # Add the cancel emoji
+            await msg.add_reaction(client.emoji_list[-1])
+
+            # Define criteria that must be met for the reaction to be accepted
+            def check(r, u):
+                log.info(f"Got response: {str(r)}. ({str(r) in client.emoji_list}, {ctx.author.id == u.id}, {r.message.id == msg.id})")
+                return str(r) in client.emoji_list and ctx.author.id == u.id and r.message.id == msg.id
+
+            # Wait for reaction
+            try:
+
+                log.info("Waiting for reaction")
+                reaction, user = await client.wait_for('reaction_add', check=check, timeout=200)
+            
+            except TimeoutError:
+
+                log.warning("No reaction has been made")
+                return
+
+            log.info(f"Rection received: {reaction} by {user}")
+            
+            # Get index of emoji in emoji_list
+            emoji_index = client.emoji_list.index(str(reaction))
+
+            # Check if it is the cancel emoji
+            if emoji_index == len(client.emoji_list) - 1:
+
+                await ctx.send("Download was cancelled")
+                return
+
+            video = urls[emoji_index]
+
+            log.info(f"{video} was chosen")
+
+            await play_audio(ctx, video, index)
+    else:
+        
+        # Starting music, if there is any
+        client.start_player()
+
+
+@slash.slash(name="playlist")
+async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index: int = 0, limit: int = 0, randomize: bool = False):
+
+    # Check if either url or name have been given
+    if not (name or url):
+        await ctx.send("Please specify a name or url!")
+
+    await ctx.defer()
+
+    # Join channel
+    if not await join(ctx):
+
+        return
+
+    if name:
+
+        query = f"SELECT url, path, length FROM {name}"
+        playlist_songs = db.execute(query)
+
+        # Shuffle list if desired
+        if randomize:
+
+            random.shuffle(playlist_songs)
+
+        # Shorten the list
+        if limit and limit < len(playlist_songs):
+
+            playlist_songs = playlist_songs[:limit]
+
+        # If index is too high, set to 0
+        # This cause the songs to be added the end of the queue
+        index = check_index(index)
+        for song in playlist_songs:
+            
+            # Put song data into a dictionary
+            song_data = {
+                "path": song[1].replace("\\", "\\\\"),
+                "length": song[2]
+            }
+
             # Add song to queue
-            await add_to_queue(ctx, song_url, index=index)
+            await add_to_queue(ctx, song[0], index=index, file_data=song_data)
 
-            # Increase index if given
+            # Increase index by one if active
             if index:
                 index += 1
 
-        except Exception as e:
-
-            log.error(f"Couldn't add {url} from playlist" + str(e))
-
-    await ctx.send("All songs from playlist have been added")
-
-@slash.subcommand(base="play", subcommand_group="playlist", name="by_name")
-async def _play_playlist_by_name(ctx: SlashContext, name: str, index: int = 0, limit: int = 0, randomize: bool = False):
+        await ctx.send("Playlist added")
     
-    await ctx.defer()
+    elif url:
 
-    # Join channel
-    if not await join(ctx):
+        # Check if url is valid and extract id
+        try:
+            url = convert_url(url, id_only=True, playlist=True)
 
-        return
-    
-    query = f"SELECT url, path, length FROM {name}"
-    playlist_songs = db.execute(query)
+        except ValueError:
 
-    # Shuffle list if desired
-    if randomize:
+            await ctx.send("Invalid url")
 
-        random.shuffle(playlist_songs)
+            return
 
-    # Shorten the list
-    if limit and limit < len(playlist_songs):
+        await ctx.send("Preparing playlist", hidden=True)
 
-        playlist_songs = playlist_songs[:limit]
+        urls = await yt.get_playlist_contents(url)
 
-    # If index is too high, set to 0
-    # This cause the songs to be added the end of the queue
-    index = check_index(index)
-    for song in playlist_songs:
+        # Shuffle list if desired
+        if randomize:
+
+            random.shuffle(urls)
+
+        # Shorten the list
+        if limit and limit < len(urls):
+
+            urls = urls[:limit]
         
-        # Put song data into a dictionary
-        song_data = {
-            "path": song[1].replace("\\", "\\\\"),
-            "length": song[2]
-        }
+        # If index is too high, set to 0
+        # This adds the song to the end of the queue
+        index = check_index(index)
 
-        # Add song to queue
-        await add_to_queue(ctx, song[0], index=index, file_data=song_data)
+        for song_url in urls:
 
-        # Increase index by one if active
-        if index:
-            index += 1
+            try:
+                # Add song to queue
+                await add_to_queue(ctx, song_url, index=index)
 
-    await ctx.send("Playlist added")
+                # Increase index if given
+                if index:
+                    index += 1
+
+            except Exception as e:
+
+                log.error(f"Couldn't add {url} from playlist" + str(e))
+
+        await ctx.send("All songs from playlist have been added")
 
 # TODO player reset/loop check
 
@@ -757,14 +749,19 @@ async def on_ready() -> None:
 
         hide.hide()
 
+    # Get custom emojis
     client.get_emojis()
 
-    client.update_duration.start()
-    # TODO:Change status
+    # TODO Change status
     # TODO volume / normalize
     # TODO reset
     # TODO lyrics
     # TODO shuffle
+    # TODO update playlist
+    # TODO bugfix
+    # TODO playlist private
+    # TODO optimize getting data
+    # TODO pause play cringe
 
 
 @client.event

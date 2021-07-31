@@ -67,8 +67,14 @@ class MyClient(commands.Bot):
         # Indicates whether to repeat current song
         self.repeat = False
 
-        # How often to repeat
+        # How often to repeat current song
+        # When negative, will repeat indefinitely
         self.repeat_counter = -1
+
+        self.get_emojis()
+
+        self.update_duration.stop()
+        self.update_duration.start()
 
     def vc_check(self) -> bool:
         '''
@@ -95,7 +101,7 @@ class MyClient(commands.Bot):
 
         self.force_stop = False
 
-        self.check_player.cancel()
+        self.check_player.stop()
         self.check_player.start()
     
     def stop(self, force: bool = False):
@@ -140,7 +146,7 @@ class MyClient(commands.Bot):
                 self.repeat_counter -= 1
             
         # Play next track
-        self.check_player.cancel()
+        self.check_player.stop()
         self.check_player.start()
     
     def get_emojis(self) -> None:
