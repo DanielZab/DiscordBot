@@ -63,6 +63,7 @@ class DataBase:
                           "url VARCHAR(255) NOT NULL,",
                           "path VARCHAR(255),",
                           "length FLOAT,",
+                          "name VARCHAR(255),",
                           "PRIMARY KEY (id)",
                           ")  ENGINE=INNODB;"])
         self.execute(query)
@@ -83,13 +84,14 @@ class DataBase:
         query = "ALTER TABLE queuelist AUTO_INCREMENT = 1;"
         self.execute(query)
 
-    def add_to_queue(self, queue_id: int, url: str, path: str, length: float) -> None:
+    def add_to_queue(self, queue_id: int, url: str, path: str, length: float, name: str) -> None:
         '''
         Adds a track to the queuelist table
         '''
 
         path = path.replace("'", "''")
-        query = f"INSERT INTO queuelist (queue_id, url, path, length) VALUES ({queue_id} ,'{url}', '{path}', {length});"
+        name = name.replace("'", "''")
+        query = f"INSERT INTO queuelist (queue_id, url, path, length, name) VALUES ({queue_id} ,'{url}', '{path}', {length}, '{name}');"
         self.execute(query)
 
         log.info(f"{queue_id}/{url}/{path}/{length} added to queuelist")
@@ -102,7 +104,7 @@ class DataBase:
                             "SET queue_id = queue_id + 1",
                             f"WHERE queue_id >= {index};"]))
 
-    def insert_into_queue(self, index: int, url: str, length: float, path: str) -> None:
+    def insert_into_queue(self, index: int, url: str, length: float, path: str, name: str) -> None:
 
         log.info(f"Inserting {url} to index {index}")
 
@@ -114,7 +116,7 @@ class DataBase:
             else:
                 index = 1
         
-        self.add_to_queue(index, url, path, length)
+        self.add_to_queue(index, url, path, length, name)
     
     def get_max_queue_id(self) -> int:
         log.info("Getting maximum queue_id")
@@ -159,7 +161,3 @@ class DataBase:
             query = f"UPDATE queuelist SET queue_id={i} WHERE id={song[0]}"
         # TODO Test when many songs in queue
     
-    def get_url_duplicate(self, url: str) -> list:
-        query = f"SELECT url, path, length FROM queuelist WHERE url='{url}'"
-        result = self.execute(query)
-        return result

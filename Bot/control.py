@@ -19,7 +19,7 @@ class ControlBoard:
             index = db.execute(query)[0][0] - client.queue_counter
 
             # Check if there are songs to skip
-            if index < 1:
+            if index < 1 and not client.vc_check():
                 log.warning("No song to skip!")
                 await ctx.send("No song to skip", hidden=True)
                 return
@@ -36,7 +36,10 @@ class ControlBoard:
         if not amount <= index:
             amount = index
 
-        client.queue_counter += (amount - 1)
+        client.repeat = False
+        client.repeat_counter = -1
+        if amount:
+            client.queue_counter += (amount - 1)
         client.vc.stop()
 
         await ctx.send("Skipped!", delete_after=3)
@@ -47,7 +50,7 @@ class ControlBoard:
         index = client.queue_counter - 1
 
         # Check if there are previous songs
-        if index < 1 and not (amount == 1 and client.vc_check() and client.song_timer >= 3):
+        if index < 1 and not (amount == 1 and client.vc_check() and client.song_timer >= 5):
             log.warning("No previous song!")
             await ctx.send("No previous song!", hidden=True)
             return
@@ -63,6 +66,8 @@ class ControlBoard:
             # Don't skip if only skipping one and playing longer than 3 seconds
             # This causes the song to repeat instead of going to the previous song
             if not (amount == 1 and client.song_timer > 5):
+                client.repeat = False
+                client.repeat_counter = -1
                 client.queue_counter -= 1
 
         await ctx.send("Gone back!", delete_after=3)
