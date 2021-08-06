@@ -1,9 +1,12 @@
+import json
 import googleapiclient.discovery
+import google_auth_oauthlib.flow
 import googleapiclient.errors
 from googleapiclient.http import MediaIoBaseDownload
 import os, io, random
 import logging
 import asyncio
+import json
 
 log = logging.getLogger(__name__)
 
@@ -12,7 +15,7 @@ class YouTube:
     '''
     Performs Youtube searches and loads playlists
     '''
-    def __init__(self, key) -> None:
+    def __init__(self, key: str) -> None:
         self.key = key
 
         # Specify YT Data Api: name and version
@@ -54,34 +57,6 @@ class YouTube:
         except Exception as e:
 
             log.error("Search failed. Error: " + str(e))
-
-    def dl_captions(self, _id):
-        '''
-        Download video captions
-        '''
-        
-        request = self.resource.captions().download(
-            id=_id
-        )
-
-        file_name = "captions\\" + _id
-
-        # Rename path if already exists
-        while os.path.exists(file_name):
-            file_name += str(random.randint(0, 9))
-
-        # Download captions
-        try:
-            fh = io.FileIO(file_name, "wb")
-            download = MediaIoBaseDownload(fh, request)
-            complete = False
-            while not complete:
-                status, complete = download.next_chunk()
-            
-            return file_name
-        
-        except Exception as e:
-            log.error("Could't download captions: " + str(e))
 
     async def get_search(self, keyword, amount=1, search_type="video") -> list:
         '''
@@ -202,7 +177,7 @@ class YouTube:
         log.info("Captions found")
 
         # Convert json to more convenient form
-        captions = list(tuple(e["id"], e["snippet"]["language"]) for e in captions)
+        captions = list(tuple([e["id"], e["snippet"]["language"]]) for e in captions)
 
         return captions
     

@@ -1,15 +1,24 @@
-from typing import Tuple
+from typing import List
 from my_client import MyClient
 from discord_slash.context import SlashContext
 from youtube import YouTube
+import json
 import youtube_dl
 import logging
 import requests
 import functools
 import asyncio
 import lyricsgenius
+from downloader import dl_captions
 
 log = logging.getLogger(__name__)
+
+
+class LyricPoint:
+    def __init__(self, text: str, seconds: int) -> None:
+        self.text = text
+        self.seconds = seconds
+
 
 
 async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube) -> tuple:
@@ -24,7 +33,7 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube)
         if len(captions) == 1:
 
             # Download captions
-            caption_path = yt.dl_captions(captions[0][0])
+            caption_path = await dl_captions("https://www.youtube.com/watch?v=" + _id, captions[0][1])
 
             # Return file path
             if caption_path:
@@ -44,7 +53,7 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube)
             if len(languages) == 1:
 
                 # Download captions
-                caption_path = yt.dl_captions(captions[0][0])
+                caption_path = await dl_captions("https://www.youtube.com/watch?v=" + _id, captions[0][1])
 
                 # Return file path
                 if caption_path:
@@ -102,7 +111,7 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube)
                 log.info(f"{language} was chosen")
 
                 # Download captions
-                caption_path = yt.dl_captions(captions[language][0])
+                caption_path = await dl_captions("https://www.youtube.com/watch?v=" + _id, captions[language][1])
 
                 # Return file path
                 if caption_path:
@@ -226,7 +235,21 @@ def convert(s: str):
     # Replace all whitespaces with the url equivalent '%20'
     s.replace(" ", "%20")
     return s
+
+
+def create_lyrics_list(source: str, current_lyrics: str) -> List[LyricPoint]:
+
+    if source == "textyl":
+        json_list = json.loads(current_lyrics)
+        lyrics_list = []
+        for entry in json_list:
+            lyrics_list.append(LyricPoint(entry["lyrics"], int(entry["seconds"])))
+        lyrics_list.sort(key=lambda x: x.seconds)
+        return lyrics_list
     
+    elif source == "captions":
+        pass
+
 
 async def get_genius_lyrics(_id: str, artist: str = None, track: str = None) -> str:
 

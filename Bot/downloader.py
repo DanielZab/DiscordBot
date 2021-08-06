@@ -3,6 +3,9 @@ import pafy
 import youtube_dl
 from pydub import AudioSegment
 import asyncio
+import functools
+
+from youtube_dl.compat import _TreeBuilder
 log = logging.getLogger(__name__)
 
 
@@ -94,3 +97,46 @@ async def try_to_download(url: str, target: str) -> tuple:
     log.info("Finished downloading")
 
     return path, length
+
+
+async def dl_captions(url: str, lang: str):
+
+    files = os.listdir("captions")
+    loop = asyncio.get_event_loop()
+
+    log.info("Downloading captions")
+    ytdl_options = {
+        "writesubtitles": True,
+        'outtmpl': "./captions/%(title)s.%(ext)s",
+        "subtitleslangs:": [lang],
+        "skip_download": True,
+        "quiet": True
+    }
+    with youtube_dl.YoutubeDL(ytdl_options) as ydl:
+        dl_function = functools.partial(ydl.download,
+                                        [url])
+        await loop.run_in_executor(None, dl_function)
+    
+    try:
+        path = list(set(os.listdir("captions")).difference(set(files)))[0]
+    
+    except IndexError:
+        ytdl_options = {
+        "writeautomaticsub": True,
+        'outtmpl': "./captions/%(title)s.%(ext)s",
+        "subtitleslangs:": [lang],
+        "skip_download": True,
+        "quiet": True
+        }
+        with youtube_dl.YoutubeDL(ytdl_options) as ydl:
+            dl_function = functools.partial(ydl.download,
+                                            [url])
+            await loop.run_in_executor(None, dl_function)
+        
+        try:
+            path = list(set(os.listdir("captions")).difference(set(files)))[0]
+        
+        except:
+            return None
+
+    return "captions\\" + path

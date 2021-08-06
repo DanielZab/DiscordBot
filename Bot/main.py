@@ -765,12 +765,29 @@ async def _shuffle(ctx: SlashContext) -> None:
 @slash.slash(name="lyrics")
 async def _lyrics(ctx: SlashContext, full=False):
     await ctx.defer()
+    url = db.get_current_url(client.queue_counter)
+    _id = convert_url(url, id_only=True)
+
     if full:
-        url = db.get_current_url(client.queue_counter)
-        _id = convert_url(url, id_only=True)
-        ly = lyrics.get_genius_lyrics(_id)
+
+        current_lyrics = await lyrics.get_genius_lyrics(_id)
+        msg_list = string_creator.create_lyrics_message(current_lyrics)
+
+        for msg in msg_list:
+            await ctx.send(msg)
+
     else:
-        ly = await lyrics.get_lyrics(ctx)
+        current_lyrics = await lyrics.get_lyrics(ctx, _id, client, yt)
+
+        if current_lyrics[0] == "genius":
+            msg_list = string_creator.create_lyrics_message(current_lyrics)
+
+            for msg in msg_list:
+                await ctx.send(msg)
+        
+        else:
+            print(current_lyrics)
+            lyric_point_list = lyrics.create_lyrics_list(*current_lyrics)
 
 
 @client.event

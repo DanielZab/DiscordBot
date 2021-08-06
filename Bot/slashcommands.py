@@ -297,8 +297,8 @@ shuffle = {
 }
 
 lyrics = {
-    "name": "shuffle",
-    "description": "Shuffles the playlist",
+    "name": "lyrics",
+    "description": "Shows the lyrics",
     "options": [{
         "name": "full",
         "description": "View all lyrics at once. Show lyrics in sync with music otherwise. False if omitted",
@@ -357,4 +357,5 @@ def update_playlist_commands() -> None:
 
 if __name__ == "__main__":
     post(lyrics)
+    post(shuffle)
 # TODO dynamic url
