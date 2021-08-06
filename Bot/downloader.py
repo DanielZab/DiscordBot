@@ -52,10 +52,6 @@ def normalizeAudio(audiopath: str, destination_path: str) -> None:
     return song.duration_seconds
 
 
-def multiprocess() -> None:
-    pass
-
-
 async def try_to_download(url: str, target: str) -> tuple:
     '''
     Downloads and normalizes audio

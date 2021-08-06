@@ -33,6 +33,9 @@ from my_client import MyClient
 # String creator
 import string_creator
 
+# Lyrics skript
+import lyrics
+
 # Control board commands
 import control
 
@@ -63,6 +66,10 @@ log.info("All modules have been imported")
 # Assign slash command client
 client = MyClient()
 slash = SlashCommand(client)
+
+
+# Get environment variables
+env_var = EnvVariables()
 
 
 def get_length(url, convert=True) -> Union[int, str]:
@@ -350,6 +357,7 @@ async def _play(ctx: SlashContext, name: str = None, url: str = None, amount: in
             log.info(f"{video} was chosen")
 
             await play_audio(ctx, video, index)
+
     else:
         
         # Starting music, if there is any
@@ -693,6 +701,7 @@ async def _update_playlist(ctx: SlashContext, name: str, url: str = "") -> None:
 
     if not url:
         pass
+    # TODO update
 
 
 @slash.subcommand(base="delete", name="playlist")
@@ -719,9 +728,8 @@ async def _delete_playlist(ctx: SlashContext, name: str) -> None:
 
     await ctx.send(name + " was deleted")
 
-
 @slash.slash(name="repeat")
-async def _repeat(ctx: SlashContext, amount: int = -1):
+async def _repeat(ctx: SlashContext, amount: int = -1) -> None:
     if amount > -1 and client.repeat:
         client.repeat_counter = amount
         await ctx.send(f"I will repeat {client.current_track_name} {amount} time(s)")
@@ -732,7 +740,37 @@ async def _repeat(ctx: SlashContext, amount: int = -1):
     else:
         client.repeat = True
         client.repeat_counter = amount
-        await ctx.send(f"I will repeat {client.current_track_name} infinitely")
+        await ctx.send(f"I will repeat {client.current_track_name} indefinitely")
+
+
+@slash.slash(name="shuffle")
+async def _shuffle(ctx: SlashContext) -> None:
+
+    log.info("Shuffling playlist")
+
+    await ctx.defer()
+
+    query = f"SELECT id FROM queuelist WHERE queue_id > {client.queue_counter}"
+    queuelist = db.execute(query)
+
+    random.shuffle(queuelist)
+    for i, entry in enumerate(queuelist):
+        query = f"UPDATE queuelist SET queue_id = {i + client.queue_counter} WHERE id = {entry[0]}"
+        db.execute(query)
+    
+    await client.update_queuelist_messages()
+    await ctx.send("The queuelist has been shuffled")
+
+
+@slash.slash(name="lyrics")
+async def _lyrics(ctx: SlashContext, full=False):
+    await ctx.defer()
+    if full:
+        url = db.get_current_url(client.queue_counter)
+        _id = convert_url(url, id_only=True)
+        ly = lyrics.get_genius_lyrics(_id)
+    else:
+        ly = await lyrics.get_lyrics(ctx)
 
 
 @client.event
@@ -756,7 +794,6 @@ async def on_ready() -> None:
     # TODO volume / normalize
     # TODO reset
     # TODO lyrics
-    # TODO shuffle
     # TODO update playlist
     # TODO bugfix
     # TODO playlist private
@@ -792,9 +829,6 @@ async def on_component(ctx: ComponentContext):
 
 
 if __name__ == "__main__":
-
-    # Get environment variables
-    env_var = EnvVariables()
 
     # Create DataBase class instance
     db = DataBase(env_var.SQL_USER, env_var.SQL_PW)

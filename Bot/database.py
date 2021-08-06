@@ -161,3 +161,12 @@ class DataBase:
             query = f"UPDATE queuelist SET queue_id={i} WHERE id={song[0]}"
         # TODO Test when many songs in queue
     
+    def get_current_url(self, counter):
+        log.info("Getting current url")
+
+        query = f"SELECT url FROM queuelist WHERE queue_id = {counter}"
+        url = self.execute(query)
+        
+        log.info(f"Current url: {url}")
+        return url
+    

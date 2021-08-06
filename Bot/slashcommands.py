@@ -291,6 +291,21 @@ repeat = {
     ]
 }
 
+shuffle = {
+    "name": "shuffle",
+    "description": "Shuffles the playlist"
+}
+
+lyrics = {
+    "name": "shuffle",
+    "description": "Shuffles the playlist",
+    "options": [{
+        "name": "full",
+        "description": "View all lyrics at once. Show lyrics in sync with music otherwise. False if omitted",
+        "type": 5
+    }]
+}
+
 update = get_update_command()
 
 delete = get_delete_command()
@@ -341,6 +356,5 @@ def update_playlist_commands() -> None:
 
 
 if __name__ == "__main__":
-    post(play)
-    update_playlist_commands()
+    post(lyrics)
 # TODO dynamic url

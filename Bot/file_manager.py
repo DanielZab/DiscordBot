@@ -16,6 +16,9 @@ def reset_directories():
     delete_directory('temp')
     os.mkdir('temp')
 
+    delete_directory('captions')
+    os.mkdir('captions')
+
     log.info("Directory reset complete")
 
 

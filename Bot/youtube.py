@@ -1,5 +1,7 @@
 import googleapiclient.discovery
-import os
+import googleapiclient.errors
+from googleapiclient.http import MediaIoBaseDownload
+import os, io, random
 import logging
 import asyncio
 
@@ -21,6 +23,65 @@ class YouTube:
         self.resource = googleapiclient.discovery.build(self.api_service_name, 
                                                         self.api_version, 
                                                         developerKey=self.key)
+
+    def get_name(self, _id):
+        '''
+        Get name of youtube video
+        '''
+
+        log.info("Getting name of video: " + str(_id))
+
+        # Disable OAuthlib's HTTPS verification when running locally
+        # DO NOT leave this option enabled in production
+        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
+        # Perform search
+        try:
+            request = self.resource.videos().list(
+                part="snippet",
+                id=_id
+            )
+
+            response = request.execute()
+            
+            # Extract title
+            title = response['items'][0]['snippet']["title"]
+
+            log.info(f"The title is {title}")
+
+            return title
+
+        except Exception as e:
+
+            log.error("Search failed. Error: " + str(e))
+
+    def dl_captions(self, _id):
+        '''
+        Download video captions
+        '''
+        
+        request = self.resource.captions().download(
+            id=_id
+        )
+
+        file_name = "captions\\" + _id
+
+        # Rename path if already exists
+        while os.path.exists(file_name):
+            file_name += str(random.randint(0, 9))
+
+        # Download captions
+        try:
+            fh = io.FileIO(file_name, "wb")
+            download = MediaIoBaseDownload(fh, request)
+            complete = False
+            while not complete:
+                status, complete = download.next_chunk()
+            
+            return file_name
+        
+        except Exception as e:
+            log.error("Could't download captions: " + str(e))
 
     async def get_search(self, keyword, amount=1, search_type="video") -> list:
         '''
@@ -108,32 +169,41 @@ class YouTube:
 
         return result
     
-    def get_name(self, _id):
+    async def get_captions(self, _id):
         '''
-        
+        Get ids of video captions if available
         '''
 
-        log.info("Getting name of video: " + str(_id))
+        log.info("Getting captions")
 
-        # Disable OAuthlib's HTTPS verification when running locally
-        # DO NOT leave this option enabled in production
-        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+        # Define method parameters
+        request = self.resource.captions().list(
+            part="snippet",
+            videoId=_id
+        )
 
-        # Perform search
+        # Get captions
         try:
-            request = self.resource.videos().list(
-                part="snippet",
-                id=_id
-            )
 
-            response = request.execute()
-            
-            # Extract title
-            title = response['items'][0]['snippet']["title"]
-
-            log.info(f"The title is {title}")
-
-            return title
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, request.execute)
 
         except Exception as e:
-            log.error("Search failed. Error: " + str(e))
+            log.error("Couldn't get captions. Error: " + str(e))
+            return None
+
+        captions = response["items"]
+
+        # Check if captions exist
+        if not len(captions):
+            log.info("No captions available")
+            return None
+        
+        log.info("Captions found")
+
+        # Convert json to more convenient form
+        captions = list(tuple(e["id"], e["snippet"]["language"]) for e in captions)
+
+        return captions
+    
+
