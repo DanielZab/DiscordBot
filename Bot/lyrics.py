@@ -1,3 +1,4 @@
+from env_vars import EnvVariables
 from typing import List
 from my_client import MyClient
 from discord_slash.context import SlashContext
@@ -9,6 +10,7 @@ import requests
 import functools
 import asyncio
 import lyricsgenius
+import re
 from downloader import dl_captions
 
 log = logging.getLogger(__name__)
@@ -20,8 +22,7 @@ class LyricPoint:
         self.seconds = seconds
 
 
-
-async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube) -> tuple:
+async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube, env: EnvVariables) -> tuple:
     '''
     Tries to get song lyrics from various resources
     Returns tuple containing the lyrics source and the lyrics
@@ -43,7 +44,7 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube)
 
             # Get all languages
             languages = []
-            for _id, language in captions:
+            for caption_id, language in captions:
                 try:
                     languages.index(language)
                 except ValueError:
@@ -66,7 +67,7 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube)
                 msg = "Found multiple languages. Which one do you want?"
 
                 for i, l in enumerate(languages):
-                    msg += f"\n\t {i}. {l}"
+                    msg += f"\n\t{i + 1}. {l}"
 
                 msg = await ctx.send(msg)
 
@@ -111,7 +112,7 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube)
                 log.info(f"{language} was chosen")
 
                 # Download captions
-                caption_path = await dl_captions("https://www.youtube.com/watch?v=" + _id, captions[language][1])
+                caption_path = await dl_captions("https://www.youtube.com/watch?v=" + _id, language)
 
                 # Return file path
                 if caption_path:
@@ -248,12 +249,31 @@ def create_lyrics_list(source: str, current_lyrics: str) -> List[LyricPoint]:
         return lyrics_list
     
     elif source == "captions":
-        pass
+
+        lyrics_list = []
+        with open(current_lyrics, "r") as f:
+
+            for line in f.readlines():
+
+                line = line.strip()
+
+                match = re.match(r"^(?P<h>\d{2}):(?P<m>\d{2}):(?P<s>\d{2}).(?P<mm>\d{3}) --> [0-9\.:]{12}$", line)
+
+                if match:
+                    seconds = int(int(match.group("h")) * 3600 + int(match.group("m")) * 60 + int(match.group("s")))
+                    lyrics_list.append(LyricPoint("", seconds))
+                elif len(lyrics_list) > 0 and line != "":
+                    last_point = lyrics_list[-1]
+                    if last_point.text != "":
+                        last_point.text += ". "
+                    last_point.text += line
+        
+        return lyrics_list
 
 
-async def get_genius_lyrics(_id: str, artist: str = None, track: str = None) -> str:
+async def get_genius_lyrics(_id: str, env: EnvVariables, artist: str = None, track: str = None) -> str:
 
-    import main.env_var.GENIUS_TOKEN as GENIUS_TOKEN
+    GENIUS_TOKEN = env.GENIUS_TOKEN
 
     # Instanciate lyricsgenius client
     genius = lyricsgenius.Genius(GENIUS_TOKEN)

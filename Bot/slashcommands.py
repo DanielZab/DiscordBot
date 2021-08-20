@@ -13,6 +13,7 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 
 # Get url
 url = "https://discord.com/api/v8/applications/697051009138163732/guilds/456109062833176598/commands"
+# url = "https://discord.com/api/v8/applications/697051009138163732/guilds/387214698757750784/commands"
 
 # Create header
 headers = {
@@ -356,6 +357,5 @@ def update_playlist_commands() -> None:
 
 
 if __name__ == "__main__":
-    post(lyrics)
-    post(shuffle)
+    pass
 # TODO dynamic url

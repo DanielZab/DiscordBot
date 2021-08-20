@@ -21,7 +21,6 @@ def create_queue_string(queuelist: list, amount: int) -> List[str]:
         # Prepare and convert the database entries
         name = entry[0]
 
-
         length = convert_time(int(entry[1]))
         length = f"{str(length[0]) + ':' if length[0] else ''}{str(length[1]).zfill(2)}:{str(length[2]).zfill(2)}"
         name_string = f"{name if len(name) < 60 else name[:60] + '...'} ({length})"
@@ -128,3 +127,11 @@ def create_lyrics_message(lyrics: str) -> List[str]:
     
     return final_msg_list
 
+
+def create_current_lyrics_message(lyrics: list, index: int) -> str:
+
+    msg = lyrics[index - 1]
+    msg += "\n" + lyrics[index]
+    msg += "\n" + lyrics[index + 1]
+
+    return msg

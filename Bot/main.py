@@ -39,6 +39,9 @@ import lyrics
 # Control board commands
 import control
 
+# Performance checker
+from per_check import PerfCheck
+
 # Updating slash commands
 import slashcommands
 
@@ -189,12 +192,15 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
     Adds audio to queuelist
     '''
 
+    perf_check.start()
     # Check if file data was passed
     if not file_data:
 
         # Get missing file data
         path = ''
         length = get_length(url)
+
+        perf_check.check("Getting length")
 
         if dl and length < 60 * 4:
             path, length = await try_to_download(url, 'queue')
@@ -205,6 +211,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
         path = file_data["path"]
         length = file_data["length"]
 
+    perf_check.check("Getting file data")
     # Move all entries higher or equal to index
     if index:
 
@@ -212,12 +219,18 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
 
         db.move_entries(index)
 
+    perf_check.check("moving index")
     name = get_name_from_path(path)
 
     if not name:
+
         name = yt.get_name(convert_url(url, id_only=True))
+    
+    perf_check.check("getting name")
 
     db.insert_into_queue(index, url, length, path, name)
+
+    perf_check.check("Inserting into queue")
 
     if client.waiting:
 
@@ -227,7 +240,9 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
     
     await client.update_queuelist_messages()
 
-    return yt.get_name(convert_url(url, id_only=True))
+    perf_check.check("Updating ql messages")
+
+    return name
 
 
 async def play_audio(ctx: SlashContext, url: str, index: int) -> None:
@@ -367,6 +382,7 @@ async def _play(ctx: SlashContext, name: str = None, url: str = None, amount: in
 @slash.slash(name="playlist")
 async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index: int = 0, limit: int = 0, randomize: bool = False):
 
+    perf_check.start()
     # Check if either url or name have been given
     if not (name or url):
         await ctx.send("Please specify a name or url!")
@@ -378,6 +394,7 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
 
         return
 
+    perf_check.check("Initialization")
     if name:
 
         query = f"SELECT url, path, length FROM {name}"
@@ -418,16 +435,20 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
         # Check if url is valid and extract id
         try:
             url = convert_url(url, id_only=True, playlist=True)
-
+        
         except ValueError:
 
             await ctx.send("Invalid url")
 
             return
+        
+        perf_check.check("Url converting")
 
         await ctx.send("Preparing playlist", hidden=True)
 
         urls = await yt.get_playlist_contents(url)
+
+        perf_check.check("Getting playlist")
 
         # Shuffle list if desired
         if randomize:
@@ -439,15 +460,23 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
 
             urls = urls[:limit]
         
+        perf_check.check("Randomizing and limiting")
+        
         # If index is too high, set to 0
         # This adds the song to the end of the queue
         index = check_index(index)
+
+        perf_check.check("Getting index")
 
         for song_url in urls:
 
             try:
                 # Add song to queue
                 await add_to_queue(ctx, song_url, index=index)
+
+                if client.waiting:
+                    client.start_player()
+                    client.waiting = False
 
                 # Increase index if given
                 if index:
@@ -770,14 +799,14 @@ async def _lyrics(ctx: SlashContext, full=False):
 
     if full:
 
-        current_lyrics = await lyrics.get_genius_lyrics(_id)
+        current_lyrics = await lyrics.get_genius_lyrics(_id, env_var)
         msg_list = string_creator.create_lyrics_message(current_lyrics)
 
         for msg in msg_list:
             await ctx.send(msg)
 
     else:
-        current_lyrics = await lyrics.get_lyrics(ctx, _id, client, yt)
+        current_lyrics = await lyrics.get_lyrics(ctx, _id, client, yt, env_var)
 
         if current_lyrics[0] == "genius":
             msg_list = string_creator.create_lyrics_message(current_lyrics)
@@ -786,8 +815,13 @@ async def _lyrics(ctx: SlashContext, full=False):
                 await ctx.send(msg)
         
         else:
-            print(current_lyrics)
-            lyric_point_list = lyrics.create_lyrics_list(*current_lyrics)
+            client.current_lyrics_index = 1
+            client.current_lyrics = lyrics.create_lyrics_list(*current_lyrics)
+            msg = await ctx.send("Loading lyrics")
+            client.lyrics_messages.append(msg)
+            while len(client.lyrics_messages) > 1:
+                old_msg = client.lyrics_messages.pop(0)
+                log.info(str(old_msg) + " was deleted")
 
 
 @client.event
@@ -859,6 +893,9 @@ if __name__ == "__main__":
 
     # Create control board commands manager
     control_board = control.ControlBoard()
+
+    # Create performance checker
+    perf_check = PerfCheck()
 
     # TODO Create directories
     # TODO visibility

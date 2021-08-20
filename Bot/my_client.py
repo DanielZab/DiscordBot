@@ -2,6 +2,8 @@ import discord
 from discord.ext import commands
 import asyncio
 import logging
+
+from discord_slash.model import SlashMessage
 import string_creator
 from discord.ext import tasks
 from ytdl_source import YTDLSource
@@ -53,10 +55,19 @@ class MyClient(commands.Bot):
         # Container for all messages containing the queuelist
         self.queuelist_messages = []
 
+        # Container for all lyrics messages
+        self.lyrics_messages = []
+
+        # Indicates the current line of lyrics
+        self.current_lyrics_index = 1
+
         # The name and duration of the current track
         self.current_track_name = None
         self.current_track_duration = 0
         self.current_thumbnail = None
+
+        # Containter for current lyrics
+        self.current_lyrics = None
 
         # Container for the id of the admin role
         self.admin_role_id = None
@@ -144,7 +155,7 @@ class MyClient(commands.Bot):
                 self.repeat_counter = -1
             else:
                 self.repeat_counter -= 1
-            
+
         # Play next track
         self.check_player.stop()
         self.check_player.start()
@@ -234,6 +245,13 @@ class MyClient(commands.Bot):
         for message in self.control_board_messages:
             await message.delete()
     
+    async def delete_lyrics_messages(self):
+
+        for message in self.lyrics_messages:
+            await message.delete()
+        
+        self.current_lyrics = []
+    
     async def send_updated_control_board_messages(self):
         # Create string
         new_embed = string_creator.create_control_board_message_string(
@@ -248,6 +266,21 @@ class MyClient(commands.Bot):
             if len(old_fields) != len(new_fields) or not all(old_fields[e].value == new_fields[e].value for e in range(len(old_fields))):
                 await msg.edit(embed=new_embed)
     
+    async def update_lyrics(self):
+
+        while self.current_lyrics_index < len(self.current_lyrics) - 1 and self.current_lyrics[self.current_lyrics_index + 1].seconds <= self.current_track_duration:
+            self.current_lyrics_index += 1
+        
+        new_msg = string_creator.create_current_lyrics_message(self.current_lyrics, self.current_lyrics_index)
+
+        for msg in self.lyrics_messages:
+            try:
+                if msg.content != new_msg:
+                    await msg.edit(content=new_msg)
+            except Exception as e:
+                log.error("Couldn't edit lyrics. " + str(e))
+
+
     @tasks.loop(count=1)
     async def check_player(self) -> None:
         '''
@@ -339,6 +372,10 @@ class MyClient(commands.Bot):
             
             # Update self queue messages
             await self.update_queuelist_messages()
+            
+            if len(self.lyrics_messages) > 0 and not self.repeat:
+
+                await self.delete_lyrics_messages()
 
         elif self.force_stop:
             log.warning("Player currently stopped")
@@ -360,4 +397,8 @@ class MyClient(commands.Bot):
                 if len(self.control_board_messages):
 
                     await self.send_updated_control_board_messages()
+            
+            if len(self.lyrics_messages):
+                
+                await self.update_lyrics()
     

@@ -104,11 +104,13 @@ async def dl_captions(url: str, lang: str):
     files = os.listdir("captions")
     loop = asyncio.get_event_loop()
 
+    log.info(f"Downloading captions of {url} in {lang}")
+
     log.info("Downloading captions")
     ytdl_options = {
         "writesubtitles": True,
         'outtmpl': "./captions/%(title)s.%(ext)s",
-        "subtitleslangs:": [lang],
+        "subtitleslangs": [lang],
         "skip_download": True,
         "quiet": True
     }
@@ -124,7 +126,7 @@ async def dl_captions(url: str, lang: str):
         ytdl_options = {
         "writeautomaticsub": True,
         'outtmpl': "./captions/%(title)s.%(ext)s",
-        "subtitleslangs:": [lang],
+        "subtitleslangs": [lang],
         "skip_download": True,
         "quiet": True
         }
