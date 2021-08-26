@@ -165,8 +165,12 @@ class DataBase:
         log.info("Getting current url")
 
         query = f"SELECT url FROM queuelist WHERE queue_id = {counter}"
-        url = self.execute(query)[0][0]
+        try:
+            url = self.execute(query)[0][0]
         
-        log.info(f"Current url: {url}")
-        return url
+            log.info(f"Current url: {url}")
+            return url
+
+        except IndexError:
+            log.error("No currrent track")
     

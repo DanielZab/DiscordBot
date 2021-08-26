@@ -25,7 +25,7 @@ import file_manager
 from downloader import normalizeAudio, try_to_download
 
 # Converter
-from converter import convert_time, convert_url, format_time_ffmpeg, get_name_from_path
+from converter import convert_time, convert_url, get_name_from_path
 
 # MyClient class
 from my_client import MyClient
@@ -165,9 +165,15 @@ async def join(ctx: SlashContext) -> bool:
 
     else:
 
-        # Join channel
-        log.info("Joining channel")
-        await channel.connect(reconnect=True, timeout=90)
+        try:
+
+            # Join channel
+            log.info("Joining channel")
+            await channel.connect(reconnect=True, timeout=90)
+        
+        except Exception as e:
+
+            log.error("Couldn't connect to voice channel " + str(e))
 
     # Check whether procedure was successful
     if channel == client.voice_clients[0].channel:
@@ -202,7 +208,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
 
         perf_check.check("Getting length")
 
-        if dl and length < 60 * 4:
+        if dl and length < 60 * 1.5:
             path, length = await try_to_download(url, 'queue')
 
     else:
@@ -547,7 +553,10 @@ async def _control(ctx: SlashContext):
 
     while len(client.control_board_messages) > 1:
         old_msg = client.control_board_messages.pop(0)
-        await old_msg.delete()
+        try:
+            await old_msg.delete()
+        except:
+            log.error("Couldn't delte old client board message")
 
 
 @slash.slash(name="skip")
@@ -617,7 +626,10 @@ async def _queue(ctx: SlashContext, amount: int = 10):
         log.info("Deleting old queuelist message")
         old_messages = client.queuelist_messages.pop(0)
         for msg in old_messages[0]:
-            await msg.delete()
+            try:
+                await msg.delete()
+            except:
+                log.error("Failed to delete old queue list message")
 
 
 @slash.slash(name="quit")
@@ -795,6 +807,11 @@ async def _shuffle(ctx: SlashContext) -> None:
 async def _lyrics(ctx: SlashContext, full=False):
     await ctx.defer()
     url = db.get_current_url(client.queue_counter)
+
+    if not url:
+        await ctx.send("No song playing!")
+        return
+
     _id = convert_url(url, id_only=True)
 
     if full:
@@ -813,14 +830,24 @@ async def _lyrics(ctx: SlashContext, full=False):
 
             for msg in msg_list:
                 await ctx.send(msg)
-        
+        elif current_lyrics[0] == "cancelled":
+
+            await ctx.send("Download was cancelled")
+
+        elif all(not e for e in current_lyrics):
+            await ctx.send("Couldn't find lyrics")
+
         else:
             client.current_lyrics_index = 1
             client.current_lyrics = lyrics.create_lyrics_list(*current_lyrics)
-            msg = await ctx.send("Loading lyrics")
+            msg = await ctx.send("Loading lyrics", components=[client.lyrics_action_row])
             client.lyrics_messages.append(msg)
             while len(client.lyrics_messages) > 1:
                 old_msg = client.lyrics_messages.pop(0)
+                try:
+                    await old_msg.delete()
+                except:
+                    log.error("Couldn't delete old lyrics message")
                 log.info(str(old_msg) + " was deleted")
 
 
@@ -867,16 +894,25 @@ async def on_component(ctx: ComponentContext):
         "play_pause_toggle": control_board.pause
     }
 
-    # Get function from custom_id of component
-    try:
-        function = buttons[ctx.custom_id]
+    if ctx.custom_id == "reduce_lyrics_timer":
+        client.lyrics_timer -= 1
+        await ctx.send("Decreased", delete_after=1.5)
+    elif ctx.custom_id == "increase_lyrics_timer":
+        client.lyrics_timer += 1
+        await ctx.send("Increased", delete_after=1.5)
+    elif ctx.custom_id == "show_full_lyrics":
+        await client.show_full_lyrics(ctx)
+    else:
+        # Get function from custom_id of component
+        try:
+            function = buttons[ctx.custom_id]
 
-    except Exception as e:
-        log.error("No function assigned! " + str(e))
-        await ctx.send("Something went wrong!", hidden=True)
-        return
-    
-    await function(client, db, ctx)
+        except Exception as e:
+            log.error("No function assigned! " + str(e))
+            await ctx.send("Something went wrong!", hidden=True)
+            return
+        
+        await function(client, db, ctx)
 
 
 if __name__ == "__main__":

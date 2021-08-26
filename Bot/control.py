@@ -1,5 +1,7 @@
 import asyncio
-import main, database
+import database
+from my_client import MyClient
+from converter import format_time_ffmpeg
 import discord
 import logging
 import file_manager
@@ -11,7 +13,7 @@ log = logging.getLogger(__name__)
 
 class ControlBoard:
 
-    async def skip(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 1) -> None:
+    async def skip(self, client: MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 1) -> None:
 
         # Try to get highest index
         try:
@@ -44,7 +46,7 @@ class ControlBoard:
 
         await ctx.send("Skipped!", delete_after=3)
 
-    async def back(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 1) -> None:
+    async def back(self, client: MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 1) -> None:
 
         # Convert queue:counter to zero-based numbering
         index = client.queue_counter - 1
@@ -81,7 +83,7 @@ class ControlBoard:
             client.start_player()
         
 
-    async def pause(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext]) -> None:
+    async def pause(self, client: MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext]) -> None:
 
         log.info("Toggle pause/resume")
 
@@ -97,7 +99,7 @@ class ControlBoard:
             log.warning("Could not pause, currently no track playing")
             await ctx.send("No song playing!", hidden=True)
 
-    async def fast_forward(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
+    async def fast_forward(self, client: MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
         '''
         Fasts forward a song. Skips 10 seconds by default
         '''
@@ -112,7 +114,7 @@ class ControlBoard:
             destination_time = client.current_track_duration - 1
 
         # Set player configuration
-        boption = "-nostdin -ss {}".format(main.format_time_ffmpeg(destination_time))
+        boption = "-nostdin -ss {}".format(format_time_ffmpeg(destination_time))
 
         # Fast forward
         if not client.play_with_boption(boption):
@@ -129,7 +131,7 @@ class ControlBoard:
         log.info(f"Skipped {amount} seconds")
         await ctx.send("Fast forward complete", delete_after=3)
 
-    async def rewind(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
+    async def rewind(self, client: MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
         '''
         Rewinds a song. Rewinds 10 seconds by default
         '''
@@ -144,7 +146,7 @@ class ControlBoard:
             destination_time = 0
 
         # Set player configuration
-        boption = "-nostdin -ss {}".format(main.format_time_ffmpeg(destination_time))
+        boption = "-nostdin -ss {}".format(format_time_ffmpeg(destination_time))
 
         # Fast forward
         if not client.play_with_boption(boption):
@@ -161,7 +163,7 @@ class ControlBoard:
         log.info(f"Rewinded {amount} seconds")
         await ctx.send("Rewind complete", delete_after=3)
 
-    async def stop(self, client: main.MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], silent=False):
+    async def stop(self, client: MyClient, db: database.DataBase, ctx: Union[SlashContext, ComponentContext], silent=False):
 
         db.setup()
 

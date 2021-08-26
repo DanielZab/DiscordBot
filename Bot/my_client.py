@@ -1,14 +1,20 @@
+from per_check import PerfCheck
 import discord
 from discord.ext import commands
 import asyncio
 import logging
-
+import datetime
 from discord_slash.model import SlashMessage
 import string_creator
 from discord.ext import tasks
 from ytdl_source import YTDLSource
 from converter import convert_url
+from per_check import PerfCheck
+from discord_slash import manage_components, ButtonStyle
 log = logging.getLogger(__name__)
+
+
+
 
 
 class MyClient(commands.Bot):
@@ -26,6 +32,11 @@ class MyClient(commands.Bot):
         # Create containers for current voice channel and its name
         self.channel = None
         self.vc = None
+
+        self.now = datetime.datetime.now()
+
+        # !Remove when finished
+        self.perf = PerfCheck()
 
         # Create counter for current track
         self.queue_counter = 1
@@ -59,7 +70,7 @@ class MyClient(commands.Bot):
         self.lyrics_messages = []
 
         # Indicates the current line of lyrics
-        self.current_lyrics_index = 1
+        self.current_lyrics_index = 0
 
         # The name and duration of the current track
         self.current_track_name = None
@@ -67,7 +78,7 @@ class MyClient(commands.Bot):
         self.current_thumbnail = None
 
         # Containter for current lyrics
-        self.current_lyrics = None
+        self.current_lyrics = []
 
         # Container for the id of the admin role
         self.admin_role_id = None
@@ -83,9 +94,32 @@ class MyClient(commands.Bot):
         self.repeat_counter = -1
 
         self.get_emojis()
+        
+        buttons = [
+            manage_components.create_button(
+                style=ButtonStyle.blue,
+                label="-1",
+                custom_id="reduce_lyrics_timer"
+            ),
+            manage_components.create_button(
+                style=ButtonStyle.red,
+                label="Show full",
+                custom_id="show_full_lyrics"
+            ),
+            manage_components.create_button(
+                style=ButtonStyle.blue,
+                label="+1",
+                custom_id="increase_lyrics_timer"
+            ),
+        ]
 
-        self.update_duration.stop()
+        self.lyrics_action_row = manage_components.create_actionrow(*buttons)
+
+        self.lyrics_timer = 0
+
+        self.update_duration.cancel()
         self.update_duration.start()
+
 
     def vc_check(self) -> bool:
         '''
@@ -207,6 +241,7 @@ class MyClient(commands.Bot):
 
                 for message in messages[0]:
 
+                    messages.remove(message)
                     await message.delete()
 
             return
@@ -222,12 +257,14 @@ class MyClient(commands.Bot):
                     await message.edit(content=new_messages[i])
 
                 except IndexError:
-
+                    
+                    messages.remove(message)
                     await message.delete()
                 
                 except discord.errors.NotFound:
 
                     log.warning("Could not update queuelist message, it was not found")
+                    messages.remove(message)
     
     async def delete_queuelist_messages(self):
 
@@ -240,17 +277,29 @@ class MyClient(commands.Bot):
                 except Exception as e:
                     log.error("Couldn't delete control board message. Error: " + str(e))
     
+        self.queuelist_messages = []
+    
     async def delete_control_board_messages(self):
 
         for message in self.control_board_messages:
-            await message.delete()
+            try:
+                await message.delete()
+            except Exception as e:
+                log.error("Couldn't delete control board message " + str(e))
+        
+        self.control_board_messages = []
     
     async def delete_lyrics_messages(self):
 
         for message in self.lyrics_messages:
-            await message.delete()
+            try:
+                await message.delete()
+            except Exception as e:
+                log.error("Couldn't delete lyrics message " + str(e))
         
+        self.lyrics_messages = []
         self.current_lyrics = []
+        self.current_lyrics_index = 0
     
     async def send_updated_control_board_messages(self):
         # Create string
@@ -267,9 +316,11 @@ class MyClient(commands.Bot):
                 await msg.edit(embed=new_embed)
     
     async def update_lyrics(self):
-
-        while self.current_lyrics_index < len(self.current_lyrics) - 1 and self.current_lyrics[self.current_lyrics_index + 1].seconds <= self.current_track_duration:
+        
+        while self.current_lyrics_index < len(self.current_lyrics) - 1 and self.current_lyrics[self.current_lyrics_index + 1].seconds <= self.song_timer + self.lyrics_timer:
             self.current_lyrics_index += 1
+        while self.current_lyrics_index > 0 and self.current_lyrics[self.current_lyrics_index - 1].seconds >= self.song_timer + self.lyrics_timer:
+            self.current_lyrics_index -= 1
         
         new_msg = string_creator.create_current_lyrics_message(self.current_lyrics, self.current_lyrics_index)
 
@@ -280,6 +331,18 @@ class MyClient(commands.Bot):
             except Exception as e:
                 log.error("Couldn't edit lyrics. " + str(e))
 
+    async def show_full_lyrics(self, ctx):
+
+        final_list = []
+        start_index = 0
+        while len(self.current_lyrics[start_index:]) > 20:
+            final_list.append(self.current_lyrics[start_index: start_index + 20])
+            start_index += 20
+        final_list.append(self.current_lyrics[start_index:])
+        for entry in final_list:
+            msg = "\n".join(list(e.text for e in entry))
+            await ctx.send(msg)
+        await self.delete_lyrics_messages()
 
     @tasks.loop(count=1)
     async def check_player(self) -> None:
@@ -288,6 +351,8 @@ class MyClient(commands.Bot):
         '''
 
         log.info("Checking whether to play audio")
+
+        old_track_name = self.current_track_name
 
         # Check whether connected to voice self
         if self.vc and not self.force_stop:
@@ -346,6 +411,9 @@ class MyClient(commands.Bot):
                 log.info("Playing song")
                 self.vc.play(source, after=self.song_done)
 
+                # Set timer to now
+                self.now = datetime.datetime.now()
+
                 # Stop waiting if was waiting
                 self.waiting = False
 
@@ -373,7 +441,7 @@ class MyClient(commands.Bot):
             # Update self queue messages
             await self.update_queuelist_messages()
             
-            if len(self.lyrics_messages) > 0 and not self.repeat:
+            if len(self.lyrics_messages) > 0 and self.current_track_name != old_track_name:
 
                 await self.delete_lyrics_messages()
 
@@ -383,14 +451,16 @@ class MyClient(commands.Bot):
         else:
             log.warning("Not connected to voice channel")
         
-    @tasks.loop(seconds=0.5)
+    @tasks.loop(seconds=0.1)
     async def update_duration(self):
 
         # TODO test other method
         # Add half a second to the duration timer if the player is currently playing
         if self.vc and self.vc.is_playing():
-            self.song_timer += 0.5
-
+            dif = datetime.datetime.now() - self.now
+            print(dif)
+            self.song_timer += dif.seconds + dif.microseconds / 1000000
+            self.now = datetime.datetime.now()
             # Check if current song timer is at a whole number and whether the name of the song is available
             if round(self.song_timer * 2) % 2 == 0 and self.current_track_name:
                 
@@ -401,4 +471,5 @@ class MyClient(commands.Bot):
             if len(self.lyrics_messages):
                 
                 await self.update_lyrics()
+            
     

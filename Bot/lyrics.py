@@ -1,7 +1,9 @@
+from sys import getrefcount
 from env_vars import EnvVariables
 from typing import List
 from my_client import MyClient
 from discord_slash.context import SlashContext
+from lrc_kit import ComboLyricsProvider, SearchRequest
 from youtube import YouTube
 import json
 import youtube_dl
@@ -10,16 +12,20 @@ import requests
 import functools
 import asyncio
 import lyricsgenius
-import re
+import re, os, random
 from downloader import dl_captions
 
 log = logging.getLogger(__name__)
 
-
+# TODO youtube_title_parse
+# TODO assert
 class LyricPoint:
     def __init__(self, text: str, seconds: int) -> None:
         self.text = text
         self.seconds = seconds
+    
+    def __str__(self) -> str:
+        return self.text
 
 
 async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube, env: EnvVariables) -> tuple:
@@ -93,7 +99,7 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube,
                 except TimeoutError:
 
                     log.warning("No reaction has been made")
-                    return
+                    return None, None
 
                 log.info(f"Rection received: {reaction} by {user}")
                 
@@ -103,9 +109,8 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube,
                 # Check if it is the cancel emoji
                 if emoji_index == len(client.emoji_list) - 1:
 
-                    await ctx.send("Download was cancelled")
                     log.info("Download was cancelled")
-                    return
+                    return "cancelled", None
 
                 language = languages[emoji_index]
 
@@ -118,21 +123,39 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube,
                 if caption_path:
                     return "caption", caption_path
 
-    else:
-        
-        data = await get_song_data(_id)
+    data = await get_song_data(_id)
+    
+    log.info("Trying to get lrc-kit lyrics")
 
-        textyl_lyrics = await get_textyl_lyrics(data[0], data[1])
+    lrc_lyrics = get_lrc(data[0], data[1])
 
-        if textyl_lyrics:
-            return textyl_lyrics
-        
-        if data[0]:
-            genius_lyrics = await get_genius_lyrics(_id, artist=data[0], track=data[1])
-            return "genius", genius_lyrics
-        else:
-            log.warning("Couldn't find lyrics")
-            await ctx.send("Couldn't find available lyrics!")
+    if lrc_lyrics:
+        return 'lrc', lrc_lyrics
+    
+    log.info("Trying to get textyl_lyrics")
+
+    textyl_lyrics = await get_textyl_lyrics(data[0], data[1])
+
+    if textyl_lyrics:
+        return "textyl", textyl_lyrics
+
+    if data[0]:
+        genius_lyrics = await get_genius_lyrics(_id, artist=data[0], track=data[1])
+        return "genius", genius_lyrics
+    
+    log.warning("Couldn't find lyrics")
+    return None, None
+
+
+def get_lrc(artist: str, song: str):
+    engine = ComboLyricsProvider()
+    search = SearchRequest(artist, song)
+    result = engine.search(search)
+
+    if result:
+        return str(result)
+    
+    return None
 
 
 async def get_song_data(_id: str) -> tuple:
@@ -172,25 +195,9 @@ async def get_textyl_lyrics(artist, track) -> tuple:
     for combination in combinations:
         request = functools.partial(requests.get,
                                    "https://api.textyl.co/api/lyrics?q=" + combination)
-        r = await loop.run_in_executor(request)
-        if r.text != "No lyrics available":
-            return "textyl", r.text
-    
-    # Convert strings
-    artist = convert(artist)
-    track = convert(track)
-
-    # Try again using converted strings
-    combinations = [track + " " + artist, artist + " " + track, track]
-
-    log.info("textyl combinations: " + ", ".join(combinations))
-
-    for combination in combinations:
-        request = functools.partial(requests.get,
-                                   "https://api.textyl.co/api/lyrics?q=" + combination)
-        r = await loop.run_in_executor(request)
-        if r.text != "No lyrics available":
-            return "textyl", r.text
+        r = await loop.run_in_executor(None, request)
+        if r.text != "No lyrics available" and not (400 <= r.status_code <= 600):
+            return r.text
     
 
 def convert(s: str):
@@ -248,27 +255,43 @@ def create_lyrics_list(source: str, current_lyrics: str) -> List[LyricPoint]:
         lyrics_list.sort(key=lambda x: x.seconds)
         return lyrics_list
     
-    elif source == "captions":
+    elif source == "caption":
 
         lyrics_list = []
-        with open(current_lyrics, "r") as f:
+        with open(current_lyrics, "r", encoding='utf8', errors='ignore') as f:
 
             for line in f.readlines():
 
                 line = line.strip()
 
-                match = re.match(r"^(?P<h>\d{2}):(?P<m>\d{2}):(?P<s>\d{2}).(?P<mm>\d{3}) --> [0-9\.:]{12}$", line)
+                match = re.match(r"^(?P<h>\d{2}):(?P<m>\d{2}):(?P<s>\d{2}).(?P<mm>\d{3}) --> [0-9\.:]{12}.*$", line)
 
                 if match:
-                    seconds = int(int(match.group("h")) * 3600 + int(match.group("m")) * 60 + int(match.group("s")))
+                    seconds = int(match.group("h")) * 3600 + int(match.group("m")) * 60 + int(match.group("s")) + int(match.group("mm")) / 1000
                     lyrics_list.append(LyricPoint("", seconds))
-                elif len(lyrics_list) > 0 and line != "":
+                elif len(lyrics_list) > 0 and line not in ["", " ", "  "]:
                     last_point = lyrics_list[-1]
                     if last_point.text != "":
-                        last_point.text += ". "
+                        last_point.text += " "
                     last_point.text += line
         
         return lyrics_list
+    
+    elif source == "lrc":
+        final_lyrics_list = []
+        current_lyrics_list = current_lyrics.split("\n")
+        for entry in current_lyrics_list:
+            match = re.match(r"^\[.*(?P<m>\d{2}):(?P<s>\d{2})\.(?P<mm>\d{3})\](?P<text>.*)$", entry)
+            if match:
+                seconds = int(match.group("m")) * 60 + int(match.group("s")) + int(match.group("mm")) / 1000
+                text = match.group("text")
+                lp = LyricPoint(text, seconds)
+                final_lyrics_list.append(lp)
+        
+        return final_lyrics_list
+
+
+    log.critical(f"Unknown current lyrics object: {source}, {current_lyrics}")
 
 
 async def get_genius_lyrics(_id: str, env: EnvVariables, artist: str = None, track: str = None) -> str:
@@ -280,7 +303,7 @@ async def get_genius_lyrics(_id: str, env: EnvVariables, artist: str = None, tra
 
     # Get song data if necessary
     if not track:
-        artist, track = get_song_data(_id)
+        artist, track = await get_song_data(_id)
     
     # Set function parameters
     genius_func = functools.partial(genius.search_song,

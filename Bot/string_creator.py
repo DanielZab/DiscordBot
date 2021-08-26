@@ -130,8 +130,24 @@ def create_lyrics_message(lyrics: str) -> List[str]:
 
 def create_current_lyrics_message(lyrics: list, index: int) -> str:
 
-    msg = lyrics[index - 1]
-    msg += "\n" + lyrics[index]
-    msg += "\n" + lyrics[index + 1]
+    highlight_phrase = 2
+    if len(lyrics) < 5:
+        return '\n'.join(list(str(e) for e in lyrics))
+
+    if index < 2:
+        highlight_phrase = index
+        index = 2
+    elif (len(lyrics) - 1) - index < 3:
+        highlight_phrase = (len(lyrics) - 1) - index
+        index = len(lyrics) - 3
+
+    msg = ""
+    for i, entry in enumerate(lyrics[index - 2: index + 3]):
+        if i == highlight_phrase:
+            msg += "**" + str(entry) + "**\n"
+        else:
+            msg += str(entry) + "\n"
+    msg += "-----------------------------------------------------\n"
+    msg += "*Use these buttons to sync the lyrics if out of sync*"
 
     return msg
