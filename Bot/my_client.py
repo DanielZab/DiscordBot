@@ -56,6 +56,9 @@ class MyClient(commands.Bot):
         # Indicates how long a song has been played
         self.song_timer = 0 
 
+        # Current status
+        self.current_status = None
+
         # Before options for the player, can specify different things such as where to start
         # or playback speed
         self.boption = None
@@ -344,6 +347,19 @@ class MyClient(commands.Bot):
             await ctx.send(msg)
         await self.delete_lyrics_messages()
 
+    async def update_status(self):
+
+        if self.current_status != self.current_track_name:
+            if self.current_track_name:
+                log.info("Updating status")
+                status = discord.Game(self.current_track_name)
+                await self.change_presence(activity=status)
+            else:
+                log.info("Deleting status")
+                await self.change_presence(activity=None)
+            self.current_status = self.current_track_name
+
+
     @tasks.loop(count=1)
     async def check_player(self) -> None:
         '''
@@ -444,12 +460,14 @@ class MyClient(commands.Bot):
             if len(self.lyrics_messages) > 0 and self.current_track_name != old_track_name:
 
                 await self.delete_lyrics_messages()
-
+            
         elif self.force_stop:
             log.warning("Player currently stopped")
 
         else:
             log.warning("Not connected to voice channel")
+
+        await self.update_status()
         
     @tasks.loop(seconds=0.1)
     async def update_duration(self):
@@ -458,7 +476,6 @@ class MyClient(commands.Bot):
         # Add half a second to the duration timer if the player is currently playing
         if self.vc and self.vc.is_playing():
             dif = datetime.datetime.now() - self.now
-            print(dif)
             self.song_timer += dif.seconds + dif.microseconds / 1000000
             self.now = datetime.datetime.now()
             # Check if current song timer is at a whole number and whether the name of the song is available

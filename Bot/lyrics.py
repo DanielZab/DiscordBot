@@ -14,11 +14,11 @@ import asyncio
 import lyricsgenius
 import re, os, random
 from downloader import dl_captions
+from youtube_title_parse import get_artist_title
 
 log = logging.getLogger(__name__)
 
-# TODO youtube_title_parse
-# TODO assert
+
 class LyricPoint:
     def __init__(self, text: str, seconds: int) -> None:
         self.text = text
@@ -158,6 +158,15 @@ def get_lrc(artist: str, song: str):
     return None
 
 
+def get_data_from_title(title: str) -> tuple:
+    artist, title = get_artist_title(title)
+
+    if not (artist and title):
+        return False, title
+
+    return artist, title
+
+
 async def get_song_data(_id: str) -> tuple:
     '''
     Try to get author and name of track with youtube-dl
@@ -179,8 +188,8 @@ async def get_song_data(_id: str) -> tuple:
         return artist, track
 
     except KeyError:
-        log.warning("Artist and track not found")
-        return False, info["title"]
+        log.warning("Artist and track not found, trying to get data from title")
+        return get_data_from_title(info["title"])
 
 
 async def get_textyl_lyrics(artist, track) -> tuple:
@@ -198,51 +207,6 @@ async def get_textyl_lyrics(artist, track) -> tuple:
         r = await loop.run_in_executor(None, request)
         if r.text != "No lyrics available" and not (400 <= r.status_code <= 600):
             return r.text
-    
-
-def convert(s: str):
-    
-    # Define all brackets
-    brackets = ["[]", "()", "{}"]
-
-    # Define all reserved chars in url
-    reserved_chars = "!*'();:@&=+$,/?#[]%"
-
-    # Remove all contents in brackets
-    while any(e[0] in s and e[1] in s for e in brackets):
-        
-        # Determine bracket
-        for bracket in brackets:
-            if bracket[0] in s and bracket[1] in s:
-                break
-
-        # Find indices of left and right bracket
-        left = s.find(bracket[0])
-        right = s.find(bracket[1], left)
-
-        # Check if both brackets were found
-        if not (left == -1 or right == -1):
-
-            # Remove substring
-            s = s[: left] + s[right + 1:]
-        # Remove bracket from bracketlist
-        else:
-            brackets.remove(bracket)
-    
-    #Remove all reserved chars
-    for c in reserved_chars:
-        s = s.replace(c, "")
-    
-    # Remove double whitespaces
-    while s.find("  ") != -1:
-        s = s.replace("  ", " ")
-    
-    # Remove whitespaces at start and end
-    s = s.strip()
-
-    # Replace all whitespaces with the url equivalent '%20'
-    s.replace(" ", "%20")
-    return s
 
 
 def create_lyrics_list(source: str, current_lyrics: str) -> List[LyricPoint]:
@@ -289,7 +253,6 @@ def create_lyrics_list(source: str, current_lyrics: str) -> List[LyricPoint]:
                 final_lyrics_list.append(lp)
         
         return final_lyrics_list
-
 
     log.critical(f"Unknown current lyrics object: {source}, {current_lyrics}")
 

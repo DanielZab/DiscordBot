@@ -75,30 +75,7 @@ slash = SlashCommand(client)
 env_var = EnvVariables()
 
 
-def get_length(url, convert=True) -> Union[int, str]:
-    '''
-    Gets length of video using youtube-dl in seconds unless convert is False
-    '''
-
-    log.info(f"Getting length of {url}")
-    # Get length in format hh:mm:ss
-    output = subprocess.run(f'youtube-dl -o "./test/%(title)s.%(ext)s" --get-duration {url}', capture_output=True).stdout
-    result = output.decode("utf-8")
-
-    log.info("Result lenght: {result}")
-
-    if convert:
-        # Convert to seconds
-        match = re.match(r"^((?P<h>\d{1,2}(?=\S{4,6})):)?((?P<m>\d{1,2}):)?(?P<s>\d{1,2})$", result)
-        hours = int(match.group("h") or 0)
-        minutes = int(match.group("m") or 0)
-        seconds = int(match.group("s") or 0)
-        result = hours * 3600 + minutes * 60 + seconds
-    
-    return result
-
-
-def check_index(index) -> int:
+def check_index(index: int) -> int:
 
     if index > db.get_max_queue_id() - client.queue_counter:
 
@@ -106,7 +83,6 @@ def check_index(index) -> int:
         return 0
 
     return index
-
 
 async def check_admin(ctx: SlashContext) -> bool:
     '''
@@ -193,7 +169,7 @@ async def join(ctx: SlashContext) -> bool:
     return False
 
 
-async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: Union[bool, dict] = False, dl: bool = False) -> bool:
+async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: Union[bool, dict] = False, dl: bool = False, length: int = 0) -> bool:
     '''
     Adds audio to queuelist
     '''
@@ -204,7 +180,11 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
 
         # Get missing file data
         path = ''
-        length = get_length(url)
+        if not length:
+            _id = convert_url(url, id_only=True)
+            length = await yt.get_length(_id)
+        
+        #TODO test performance
 
         perf_check.check("Getting length")
 
@@ -230,7 +210,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
 
     if not name:
 
-        name = yt.get_name(convert_url(url, id_only=True))
+        name = await yt.get_name(convert_url(url, id_only=True))
     
     perf_check.check("getting name")
 
@@ -320,20 +300,28 @@ async def _play(ctx: SlashContext, name: str = None, url: str = None, amount: in
             amount = 9 if amount > 9 else amount
 
             # Get list of youtube urls
-            urls = await yt.get_search(name, amount=amount)
+            _ids = await yt.get_search(name, amount=amount, full_url=False)
+
+            lengths = await yt.get_length(_ids)
+
+            urls = list('https://www.youtube.com/watch?v=' + e for e in _ids)
 
             # Create message
             msg = "These are the results:"
             for i, url in enumerate(urls):
 
                 # Get length of video
-                length = get_length(url, convert=False).replace("\n", "")
+                length = ":".join(convert_time(lengths[i]))
+
+                # Remove hours if video length less than one hour
+                if length.startswith("0:") and len(length) > 4:
+                    length = length[2:]
 
                 # Get id of video
                 _id = convert_url(url, id_only=True)
 
                 # Get name of video
-                title = yt.get_name(_id)
+                title = await yt.get_name(_id)
 
                 msg += f"\n\t{i + 1}: {title} ({length})"
             
@@ -452,19 +440,23 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
 
         await ctx.send("Preparing playlist", hidden=True)
 
-        urls = await yt.get_playlist_contents(url)
+        _ids = await yt.get_playlist_contents(url, full_url=False)
 
         perf_check.check("Getting playlist")
 
         # Shuffle list if desired
         if randomize:
 
-            random.shuffle(urls)
+            random.shuffle(_ids)
 
         # Shorten the list
-        if limit and limit < len(urls):
+        if limit and limit < len(_ids):
 
-            urls = urls[:limit]
+            _ids = _ids[:limit]
+
+        lengths = await yt.get_length(_ids)
+
+        assert lengths
         
         perf_check.check("Randomizing and limiting")
         
@@ -474,11 +466,13 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
 
         perf_check.check("Getting index")
 
-        for song_url in urls:
+        urls = list('https://www.youtube.com/watch?v=' + e for e in _ids)
+
+        for i, song_url in enumerate(urls):
 
             try:
                 # Add song to queue
-                await add_to_queue(ctx, song_url, index=index)
+                await add_to_queue(ctx, song_url, index=index, length=lengths[i])
 
                 if client.waiting:
                     client.start_player()
@@ -868,10 +862,9 @@ async def on_ready() -> None:
     # Get custom emojis
     client.get_emojis()
 
-    # TODO Change status
-    # TODO volume / normalize
+    await client.change_presence(status=discord.Status.online)
+    
     # TODO reset
-    # TODO lyrics
     # TODO update playlist
     # TODO bugfix
     # TODO playlist private
