@@ -1,1 +1,1 @@
-print("Hello"[1:244])
+raise Exception

@@ -1,6 +1,7 @@
 # region imports
 
 # High priority imports
+import enum
 import logger
 import hide
 
@@ -74,6 +75,9 @@ slash = SlashCommand(client)
 # Get environment variables
 env_var = EnvVariables()
 
+#TODO end of lyrics
+#TODO return when no length in add_to_queue
+#TODO prevent empty lyrics and milliseconds
 
 def check_index(index: int) -> int:
 
@@ -83,6 +87,13 @@ def check_index(index: int) -> int:
         return 0
 
     return index
+
+
+def check_playlist_name(name: str):
+    if any(name == e for e in file_manager.get_playlists()):
+        return True
+    return False
+
 
 async def check_admin(ctx: SlashContext) -> bool:
     '''
@@ -173,7 +184,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
     '''
     Adds audio to queuelist
     '''
-
+    log.info("Adding to queuelist")
     perf_check.start()
     # Check if file data was passed
     if not file_data:
@@ -183,6 +194,9 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
         if not length:
             _id = convert_url(url, id_only=True)
             length = await yt.get_length(_id)
+
+        if not length:
+            return
         
         #TODO test performance
 
@@ -190,6 +204,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
 
         if dl and length < 60 * 1.5:
             path, length = await try_to_download(url, 'queue')
+            path = r'queue\\' + path
 
     else:
 
@@ -214,6 +229,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
     
     perf_check.check("getting name")
 
+    log.info(f"Inserting into queue {index}, {url}, {length}, {path}, {name}")
     db.insert_into_queue(index, url, length, path, name)
 
     perf_check.check("Inserting into queue")
@@ -251,7 +267,7 @@ async def play_audio(ctx: SlashContext, url: str, index: int) -> None:
 
     # Add to queuelist
     try:
-        result = await add_to_queue(ctx, url, index, dl=True)
+        result = await add_to_queue(ctx, url, index=index, dl=True)
         await ctx.send(f"{result} was added to the queue")
 
     except Exception as e:
@@ -303,15 +319,20 @@ async def _play(ctx: SlashContext, name: str = None, url: str = None, amount: in
             _ids = await yt.get_search(name, amount=amount, full_url=False)
 
             lengths = await yt.get_length(_ids)
+            lengths = lengths[0]
 
             urls = list('https://www.youtube.com/watch?v=' + e for e in _ids)
 
             # Create message
             msg = "These are the results:"
+            print(lengths)
             for i, url in enumerate(urls):
 
                 # Get length of video
-                length = ":".join(convert_time(lengths[i]))
+                print(lengths[i])
+                _time = list(convert_time(lengths[i]))
+                _time = (str(e) for e in _time)
+                length = ":".join(_time)
 
                 # Remove hours if video length less than one hour
                 if length.startswith("0:") and len(length) > 4:
@@ -458,6 +479,11 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
 
         assert lengths
         
+        for invalid_video in lengths[1]:
+            _ids.remove(invalid_video)
+
+        lengths = lengths[0]
+
         perf_check.check("Randomizing and limiting")
         
         # If index is too high, set to 0
@@ -467,6 +493,8 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
         perf_check.check("Getting index")
 
         urls = list('https://www.youtube.com/watch?v=' + e for e in _ids)
+
+        print(len(urls), len(lengths))
 
         for i, song_url in enumerate(urls):
 
@@ -484,7 +512,7 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
 
             except Exception as e:
 
-                log.error(f"Couldn't add {url} from playlist" + str(e))
+                log.error(f"Couldn't add {song_url} to playlist: " + str(e))
 
         await ctx.send("All songs from playlist have been added")
 
@@ -609,8 +637,9 @@ async def _queue(ctx: SlashContext, amount: int = 10):
 
     # Send messages
     for string in queuelist_strings:
-        sent_message = await ctx.send(string)
-        sent_messages.append(sent_message)
+        if string:
+            sent_message = await ctx.send(string)
+            sent_messages.append(sent_message)
     
     # Add message to list, so it can be updated in the future
     client.queuelist_messages.append((sent_messages, amount))
@@ -658,7 +687,7 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
         if not await check_admin(ctx):
             return
 
-        await ctx.defer(hidden=True)
+        await ctx.defer()
 
         try:
             _id = convert_url(url, id_only=True, playlist=True)
@@ -672,7 +701,11 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
             name = file_manager.create_playlist_directory(name)
         
         except ValueError:
-            ctx.send("Invalid playlist name", hidden=True)
+            await ctx.send("Invalid playlist name", hidden=True)
+            raise Exception
+        
+        except FileExistsError:
+            await ctx.send("This")
             return
 
         # Create database table
@@ -681,22 +714,28 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
         
         except Exception as e:
             log.info("Couldn't create table: " + str(e))
-            shutil.rmtree("playlists\\" + name)
+            raise Exception
         
         # Add choice to slash command
         slashcommands.update_playlist_commands()
 
         # Get urls of videos in playlist
         url_list = await yt.get_playlist_contents(_id)
+            
+        client.stop(force=True)
 
         # Download contents
-        await ctx.send("Downloading contents", hidden=True)
+        playlist_msg = await ctx.send(string_creator.create_playlist_download_string("Downloading contents", 0, url_list))
 
-        for url in url_list:
+        for i, url in enumerate(url_list):
 
             try:
-
                 await client.lock.acquire()
+                try:
+                    cont = string_creator.create_playlist_download_string("Downloading contents", i, url_list)
+                    await playlist_msg.edit(content=cont)
+                except Exception as e:
+                    log.warning("Couldn't update message: " + str(e))
                 
                 path, length = await try_to_download(url, "playlists\\" + name)
 
@@ -713,13 +752,15 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
             finally:
                 client.lock.release()
 
-        await ctx.send("Finished creating playlist")
+        await playlist_msg.edit(content="Finished creating playlist")
+        client.start_player()
     
     except Exception as e:
 
         # Revert changes
-        file_manager.delete_directory(name)
+        file_manager.delete_directory("playlists\\" + name)
         db.execute("DROP TABLE " + name)
+        slashcommands.update_playlist_commands()
 
         log.error("Couldn't create playlist. Error: " + str(e))
 
@@ -732,17 +773,64 @@ async def _update_playlist(ctx: SlashContext, name: str, url: str = "") -> None:
     if not await check_admin(ctx):
         return
 
+    if not check_playlist_name(name):
+        await ctx.send("Unknown playlist name")
+        return
+
     await ctx.defer()
 
+    client.stop(force=True)
+
     if not url:
-        pass
-    # TODO update
+        try:
+            url = db.execute(f"SELECT url FROM playlists WHERE name = '{name}'")[0][0]
+        except (IndexError, TypeError):
+            log.error("Couldn't find playlist url")
+            await ctx.send("An error occurred")
+            return
+
+    try:
+        _id = convert_url(url)
+        new_urls = set([_id])
+    except ValueError:
+        _id = convert_url(url, id_only=True, playlist=True)
+        new_urls = set(await yt.get_playlist_contents(_id))
+
+    old_urls = db.execute(f"SELECT url FROM `{name}`")
+    old_urls = set(e[0] for e in old_urls)
+
+    urls_to_download = list(new_urls.difference(old_urls))
+
+    msg = await ctx.send(string_creator.create_playlist_download_string("Updating contents", 0, urls_to_download))
+
+    for i, url_to_download in enumerate(urls_to_download):
+        try:
+            await client.lock.acquire()
+            await msg.edit(content=string_creator.create_playlist_download_string("Updating contents", i, urls_to_download))
+
+            path, length = await try_to_download(url_to_download, "playlists\\" + name)
+            # Change path to queue directory
+            path = r"playlists\\" + name + r"\\" + path
+            db.insert_into_playlist(name, url, path, int(length))
+            log.info(f"{path} added to {name} playlist")
+        except Exception as e:
+            log.error(f"Couldn't add {url} to playlist. Error: " + str(e))
+        finally:
+            client.lock.release()
+        
+    await msg.edit(content="Finished updating playlist")
+    client.start_player()
 
 
 @slash.subcommand(base="delete", name="playlist")
 async def _delete_playlist(ctx: SlashContext, name: str) -> None:
 
     if not await check_admin(ctx):
+        return
+    
+    if not check_playlist_name(name):
+        await ctx.send("Unknown playlist!")
+        slashcommands.update_playlist_commands()
         return
 
     await ctx.defer()

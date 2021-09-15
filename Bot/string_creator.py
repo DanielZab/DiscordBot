@@ -48,7 +48,7 @@ def create_queue_string(queuelist: list, amount: int) -> List[str]:
             msg_list.append(new_msg)
             new_msg = "Continuation:"
 
-    if new_msg != "":
+    if new_msg != "Continuation:":
         msg_list.append(new_msg)
 
     return msg_list
@@ -151,3 +151,7 @@ def create_current_lyrics_message(lyrics: list, index: int) -> str:
     msg += "*Use these buttons to sync the lyrics if out of sync*"
 
     return msg
+
+
+def create_playlist_download_string(msg: str, index: int, li: list):
+    return f"{msg} ({index}/{len(li)})"

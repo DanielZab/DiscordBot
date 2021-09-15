@@ -9,12 +9,9 @@ import string_creator
 from discord.ext import tasks
 from ytdl_source import YTDLSource
 from converter import convert_url
-from per_check import PerfCheck
+import time
 from discord_slash import manage_components, ButtonStyle
 log = logging.getLogger(__name__)
-
-
-
 
 
 class MyClient(commands.Bot):
@@ -150,6 +147,8 @@ class MyClient(commands.Bot):
         self.force_stop = False
 
         self.check_player.stop()
+        while self.check_player.is_running():
+            time.sleep(0.05)
         self.check_player.start()
     
     def stop(self, force: bool = False):
@@ -179,6 +178,7 @@ class MyClient(commands.Bot):
         if self.force_stop:
             log.warning("Force stop")
             self.queue_counter -= 1
+            return
         elif error:
             log.error("An error has occurred during playing: " + str(error))
         else:
@@ -194,8 +194,7 @@ class MyClient(commands.Bot):
                 self.repeat_counter -= 1
 
         # Play next track
-        self.check_player.stop()
-        self.check_player.start()
+        self.start_player()
     
     def get_emojis(self) -> None:
         '''
@@ -229,6 +228,9 @@ class MyClient(commands.Bot):
         self.custom_emojis["stop"] = stop
         self.custom_emojis["skip"] = skip
 
+    def reset_player(self):
+        self.reset_player_loop.start()
+
     async def update_queuelist_messages(self) -> None:
 
         log.info("Updating queuelists")
@@ -251,23 +253,28 @@ class MyClient(commands.Bot):
 
         for messages, amount in self.queuelist_messages:
 
+            log.info(f"Updating queuelist message of length {amount}")
+
             new_messages = string_creator.create_queue_string(queuelist, amount)
 
-            for i, message in enumerate(messages):
+            for i in range(len(messages)):
 
                 try:
 
-                    await message.edit(content=new_messages[i])
+                    await messages[i].edit(content=new_messages[i])
 
                 except IndexError:
                     
-                    messages.remove(message)
-                    await message.delete()
+                    for j in range(i, len(messages)):
+                        await messages[j].delete()
+                    messages = messages[:i]
+                    log.warning(f"Deleted {j-i} queuelist messages")
+                    break
                 
                 except discord.errors.NotFound:
 
                     log.warning("Could not update queuelist message, it was not found")
-                    messages.remove(message)
+                    messages.remove(messages[i])
     
     async def delete_queuelist_messages(self):
 
@@ -401,11 +408,17 @@ class MyClient(commands.Bot):
                         self.queue_counter += 1
                 
                 if path == '':
-                    if self.boption:
-                        source = await YTDLSource.from_url(url, loop=self.loop, before_options=self.boption, stream=True)
+                    try:
+                        if self.boption:
+                            source = await YTDLSource.from_url(url, loop=self.loop, before_options=self.boption, stream=True)
 
-                    else:
-                        source = await YTDLSource.from_url(url, loop=self.loop, stream=True)
+                        else:
+                            source = await YTDLSource.from_url(url, loop=self.loop, stream=True)
+                    except Exception as e:
+                        log.error("Couldn't get source of song " + str(e))
+                        self.reset_player()
+                        self.queue_counter += 1
+                        return
 
                 else:
                     log.info("Playing downloaded song")
@@ -414,6 +427,7 @@ class MyClient(commands.Bot):
                             path,
                             before_options=self.boption
                         )
+                        log.info("Boptions loaded")
 
                     else:
                         source = discord.FFmpegOpusAudio(path)
@@ -489,4 +503,6 @@ class MyClient(commands.Bot):
                 
                 await self.update_lyrics()
             
-    
+    @tasks.loop(count=1)
+    async def reset_player_loop(self):
+        self.start_player()

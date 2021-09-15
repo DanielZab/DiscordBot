@@ -91,8 +91,6 @@ async def try_to_download(url: str, target: str) -> tuple:
 
     length = await loop.run_in_executor(None, normalizeAudio, "temp\\" + path, target + "\\" + path)
 
-    path = target + r"\\" + path
-
     log.info("Finished downloading")
 
     return path, length

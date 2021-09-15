@@ -20,10 +20,11 @@ def get_split_list(li: list, size: int) -> list:
     new_list.append(li[start_index:])
     return new_list
 
+
 def convert_duration(duration: str) -> int:
-    match = re.match(r"PT((?P<h>{1,2})H)?((?P<m>{1,2})M)?((?P<s>\d{1,2})S)")
+    match = re.match(r"^PT((?P<h>\d{1,2})H)?((?P<m>\d{1,2})M)?((?P<s>\d{1,2})S)?$", duration)
     if match:
-        h, m, s = match.group("h"), match.group("m"), match.group("s")
+        h, m, s = match.group("h") or 0, match.group("m") or 0, match.group("s") or 0
         return round(int(h) * 3600 + int(m) * 60 + int(s))
     log.error(f"Unknown youtube list duration format: {duration}")
 
@@ -217,7 +218,7 @@ class YouTube:
         if isinstance(_id, list):
             split_list = get_split_list(_id, 50)
 
-            lengths_list = []
+            lengths_list = [[],[]]
 
             assert split_list
 
@@ -229,11 +230,21 @@ class YouTube:
                 assert response
 
                 for item in response["items"]:
-                    lengths_list.append(convert_duration(item["contentDetails"]["duration"]))
-            
+                    print(item["contentDetails"]["duration"])
+                    duration = convert_duration(item["contentDetails"]["duration"])
+                    lengths_list[0].append(duration)
+                
+                difference = 0
+                for i in range(len(entry)):
+                    item_index = i - difference
+                    if entry[i] != response["items"][item_index]["id"]:
+                        difference += 1
+                        lengths_list[1].append(entry[i])
+                        
             return lengths_list
 
         elif isinstance(_id, str):
             response = await self.video_list_query("contentDetails", _id)
+            return convert_duration(response["items"][0]["contentDetails"]["duration"])
     
 

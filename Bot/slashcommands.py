@@ -65,7 +65,7 @@ def get_delete_command(choice: list = []):
         "options": [
             {
                 "name": "playlist",
-                "description": "Delete a playlist (Admin only)",
+                "description": "Delete a playlist. Pauses player temporarily (Admin only)",
                 "type": 1,
                 "options": [
                     {
@@ -89,7 +89,7 @@ def get_update_command(choice: list = []):
         "options": [
             {
                 "name": "playlist",
-                "description": "Update a playlist (Admin only)",
+                "description": "Update a playlist. Pauses player temporarily (Admin only)",
                 "type": 1,
                 "options": [
                     {
@@ -98,6 +98,12 @@ def get_update_command(choice: list = []):
                         "type": 3,
                         "required": True,
                         "choices": choice
+                    },
+                    {
+                        "name": "url",
+                        "description": "Add contents of which playlist or video",
+                        "type": 3,
+                        "required": False
                     }
                 ]
             }
@@ -254,7 +260,7 @@ create = {
     "options": [
         {
             "name": "playlist",
-            "description": "Create a playlist (Admin only)",
+            "description": "Create a playlist. Pauses player temporarily (Admin only)",
             "type": 1,
             "options": [
                 {
@@ -313,7 +319,6 @@ delete = get_delete_command()
 # endregion
 
 
-
 def post(js):
     global url
     global headers
@@ -357,5 +362,5 @@ def update_playlist_commands() -> None:
 
 
 if __name__ == "__main__":
-    pass
+    update_playlist_commands()
 # TODO dynamic url

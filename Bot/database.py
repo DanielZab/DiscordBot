@@ -141,7 +141,7 @@ class DataBase:
                     ")  ENGINE=INNODB;"])
         self.execute(query)
 
-        query = f"INSERT INTO playlists VALUES ('{name}', '{url}')"
+        query = f"INSERT INTO playlists (name, url) VALUES ('{name}', '{url}')"
 
         self.execute(query)
 

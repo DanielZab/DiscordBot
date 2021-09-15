@@ -31,9 +31,15 @@ def create_playlist_directory(name: str):
 
     if name:
         # Remove invalid characters
-        forbidden_chars = '<>:"/\\|?*`'
+        forbidden_chars = '<>:"/\\|?*\''
         for char in forbidden_chars:
             name = name.replace(char, "")
+
+        forbidden_names = ["playlists", "playlist"]
+
+        if any(name.lower() == e.lower() for e in forbidden_names):
+            log.warning("Forbidden name for playlist")
+            raise ValueError
 
         if len(name) > 0:
         # Create directory
@@ -45,13 +51,10 @@ def create_playlist_directory(name: str):
 
                 log.error(f"Couldn't create playlist, name: {name}, exception: " + str(e))
 
-                raise ValueError
-        else:
-            log.error("Invalid playlist name")
-            raise ValueError
-    else:
-        log.error("Invalid playlist name")
-        raise ValueError
+                raise FileExistsError
+
+    log.error("Invalid playlist name")
+    raise ValueError
 
 def get_playlists():
 
