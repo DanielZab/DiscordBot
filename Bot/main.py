@@ -10,7 +10,6 @@ from discord_slash.model import SlashMessage
 
 # Audio file imports
 from pydub import AudioSegment
-import audioread
 from pydub.utils import which
 
 # Environment variables
