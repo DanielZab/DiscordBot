@@ -73,6 +73,8 @@ def create_control_board_message_string(name: str, song_timer: int, track_durati
     title = f"{name if len(name) < 60 else name[:60] + '...'} ({(cctd[0]+':') if cctd[0] else ''}{str(cctd[1]).zfill(2) + ':' + str(cctd[2]).zfill(2)})"
     embed.title = title
     progress_bar = ""
+    
+    # Adapt the length of the progress bar to title length
     tkinter.Frame().destroy()
     arial16b = tkFont.Font(family='Arial', size=16, weight="bold")
     arial16n = tkFont.Font(family='Arial', size=16, weight="normal")
@@ -81,6 +83,8 @@ def create_control_board_message_string(name: str, song_timer: int, track_durati
     length = int(title_width / unit_width) + 1
     if length > 39:
         length = 39
+    
+    # Create progress bar
     for i in range(1, length + 1):
         if i / length <= song_timer / (track_duration - 1):
             progress_bar += '█'
