@@ -2,10 +2,11 @@ import logging
 from discord import Embed
 import tkinter
 from tkinter import font as tkFont
+from typing import List
 log = logging.getLogger(__name__)
 
 
-def create_queue_string(queuelist: list, amount: int) -> list:
+def create_queue_string(queuelist: list, amount: int) -> List[str]:
 
     from main import convert_time
 
@@ -19,7 +20,6 @@ def create_queue_string(queuelist: list, amount: int) -> list:
 
         # Prepare and convert the database entries
         name = entry[0]
-
 
         length = convert_time(int(entry[1]))
         length = f"{str(length[0]) + ':' if length[0] else ''}{str(length[1]).zfill(2)}:{str(length[2]).zfill(2)}"
@@ -48,7 +48,7 @@ def create_queue_string(queuelist: list, amount: int) -> list:
             msg_list.append(new_msg)
             new_msg = "Continuation:"
 
-    if new_msg != "":
+    if new_msg != "Continuation:":
         msg_list.append(new_msg)
 
     return msg_list
@@ -105,3 +105,53 @@ def create_control_board_message_string(name: str, song_timer: int, track_durati
         new_msg += f"/{str(cctd[1]).zfill(2)}:{str(cctd[2]).zfill(2)}"
 
     return new_msg
+
+
+def create_lyrics_message(lyrics: str) -> List[str]:
+
+    # Split lyrics into lines
+    lyrics_lines = lyrics.split('\n')
+    
+    # Combine 20 lines to one message
+    msg = ""
+    final_msg_list = []
+    for i, line in enumerate(lyrics_lines):
+        msg += line
+
+        if i % 20 == 0 and i != 0:
+            final_msg_list.append(msg)
+            msg = ""
+    
+    if msg != "":
+        final_msg_list.append(msg)
+    
+    return final_msg_list
+
+
+def create_current_lyrics_message(lyrics: list, index: int) -> str:
+
+    highlight_phrase = 2
+    if len(lyrics) < 5:
+        return '\n'.join(list(str(e) for e in lyrics))
+
+    if index < 2:
+        highlight_phrase = index
+        index = 2
+    elif (len(lyrics) - 1) - index < 3:
+        highlight_phrase = (len(lyrics) - 1) - index
+        index = len(lyrics) - 3
+
+    msg = ""
+    for i, entry in enumerate(lyrics[index - 2: index + 3]):
+        if i == highlight_phrase:
+            msg += "**" + str(entry) + "**\n"
+        else:
+            msg += str(entry) + "\n"
+    msg += "-----------------------------------------------------\n"
+    msg += "*Use these buttons to sync the lyrics if out of sync*"
+
+    return msg
+
+
+def create_playlist_download_string(msg: str, index: int, li: list):
+    return f"{msg} ({index}/{len(li)})"

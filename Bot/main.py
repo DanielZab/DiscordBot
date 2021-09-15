@@ -1,6 +1,7 @@
 # region imports
 
 # High priority imports
+import enum
 import logger
 import hide
 
@@ -25,7 +26,7 @@ import file_manager
 from downloader import normalizeAudio, try_to_download
 
 # Converter
-from converter import convert_time, convert_url, format_time_ffmpeg, get_name_from_path
+from converter import convert_time, convert_url, get_name_from_path
 
 # MyClient class
 from my_client import MyClient
@@ -33,8 +34,14 @@ from my_client import MyClient
 # String creator
 import string_creator
 
+# Lyrics skript
+import lyrics
+
 # Control board commands
 import control
+
+# Performance checker
+from per_check import PerfCheck
 
 # Updating slash commands
 import slashcommands
@@ -65,30 +72,14 @@ client = MyClient()
 slash = SlashCommand(client)
 
 
-def get_length(url, convert=True) -> Union[int, str]:
-    '''
-    Gets length of video using youtube-dl in seconds unless convert is False
-    '''
+# Get environment variables
+env_var = EnvVariables()
 
-    log.info(f"Getting length of {url}")
-    # Get length in format hh:mm:ss
-    output = subprocess.run(f'youtube-dl -o "./test/%(title)s.%(ext)s" --get-duration {url}', capture_output=True).stdout
-    result = output.decode("utf-8")
+#TODO end of lyrics
+#TODO return when no length in add_to_queue
+#TODO prevent empty lyrics and milliseconds
 
-    log.info("Result lenght: {result}")
-
-    if convert:
-        # Convert to seconds
-        match = re.match(r"^((?P<h>\d{1,2}(?=\S{4,6})):)?((?P<m>\d{1,2}):)?(?P<s>\d{1,2})$", result)
-        hours = int(match.group("h") or 0)
-        minutes = int(match.group("m") or 0)
-        seconds = int(match.group("s") or 0)
-        result = hours * 3600 + minutes * 60 + seconds
-    
-    return result
-
-
-def check_index(index) -> int:
+def check_index(index: int) -> int:
 
     if index > db.get_max_queue_id() - client.queue_counter:
 
@@ -96,6 +87,12 @@ def check_index(index) -> int:
         return 0
 
     return index
+
+
+def check_playlist_name(name: str):
+    if any(name == e for e in file_manager.get_playlists()):
+        return True
+    return False
 
 
 async def check_admin(ctx: SlashContext) -> bool:
@@ -155,9 +152,15 @@ async def join(ctx: SlashContext) -> bool:
 
     else:
 
-        # Join channel
-        log.info("Joining channel")
-        await channel.connect(reconnect=True, timeout=90)
+        try:
+
+            # Join channel
+            log.info("Joining channel")
+            await channel.connect(reconnect=True, timeout=90)
+        
+        except Exception as e:
+
+            log.error("Couldn't connect to voice channel " + str(e))
 
     # Check whether procedure was successful
     if channel == client.voice_clients[0].channel:
@@ -177,20 +180,31 @@ async def join(ctx: SlashContext) -> bool:
     return False
 
 
-async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: Union[bool, dict] = False, dl: bool = False) -> bool:
+async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: Union[bool, dict] = False, dl: bool = False, length: int = 0) -> bool:
     '''
     Adds audio to queuelist
     '''
-
+    log.info("Adding to queuelist")
+    perf_check.start()
     # Check if file data was passed
     if not file_data:
 
         # Get missing file data
         path = ''
-        length = get_length(url)
+        if not length:
+            _id = convert_url(url, id_only=True)
+            length = await yt.get_length(_id)
 
-        if dl and length < 60 * 4:
+        if not length:
+            return
+        
+        #TODO test performance
+
+        perf_check.check("Getting length")
+
+        if dl and length < 60 * 1.5:
             path, length = await try_to_download(url, 'queue')
+            path = r'queue\\' + path
 
     else:
 
@@ -198,6 +212,7 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
         path = file_data["path"]
         length = file_data["length"]
 
+    perf_check.check("Getting file data")
     # Move all entries higher or equal to index
     if index:
 
@@ -205,12 +220,19 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
 
         db.move_entries(index)
 
+    perf_check.check("moving index")
     name = get_name_from_path(path)
 
     if not name:
-        name = yt.get_name(convert_url(url, id_only=True))
 
+        name = await yt.get_name(convert_url(url, id_only=True))
+    
+    perf_check.check("getting name")
+
+    log.info(f"Inserting into queue {index}, {url}, {length}, {path}, {name}")
     db.insert_into_queue(index, url, length, path, name)
+
+    perf_check.check("Inserting into queue")
 
     if client.waiting:
 
@@ -220,7 +242,9 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
     
     await client.update_queuelist_messages()
 
-    return yt.get_name(convert_url(url, id_only=True))
+    perf_check.check("Updating ql messages")
+
+    return name
 
 
 async def play_audio(ctx: SlashContext, url: str, index: int) -> None:
@@ -243,7 +267,7 @@ async def play_audio(ctx: SlashContext, url: str, index: int) -> None:
 
     # Add to queuelist
     try:
-        result = await add_to_queue(ctx, url, index, dl=True)
+        result = await add_to_queue(ctx, url, index=index, dl=True)
         await ctx.send(f"{result} was added to the queue")
 
     except Exception as e:
@@ -292,20 +316,33 @@ async def _play(ctx: SlashContext, name: str = None, url: str = None, amount: in
             amount = 9 if amount > 9 else amount
 
             # Get list of youtube urls
-            urls = await yt.get_search(name, amount=amount)
+            _ids = await yt.get_search(name, amount=amount, full_url=False)
+
+            lengths = await yt.get_length(_ids)
+            lengths = lengths[0]
+
+            urls = list('https://www.youtube.com/watch?v=' + e for e in _ids)
 
             # Create message
             msg = "These are the results:"
+            print(lengths)
             for i, url in enumerate(urls):
 
                 # Get length of video
-                length = get_length(url, convert=False).replace("\n", "")
+                print(lengths[i])
+                _time = list(convert_time(lengths[i]))
+                _time = (str(e) for e in _time)
+                length = ":".join(_time)
+
+                # Remove hours if video length less than one hour
+                if length.startswith("0:") and len(length) > 4:
+                    length = length[2:]
 
                 # Get id of video
                 _id = convert_url(url, id_only=True)
 
                 # Get name of video
-                title = yt.get_name(_id)
+                title = await yt.get_name(_id)
 
                 msg += f"\n\t{i + 1}: {title} ({length})"
             
@@ -350,6 +387,7 @@ async def _play(ctx: SlashContext, name: str = None, url: str = None, amount: in
             log.info(f"{video} was chosen")
 
             await play_audio(ctx, video, index)
+
     else:
         
         # Starting music, if there is any
@@ -359,6 +397,7 @@ async def _play(ctx: SlashContext, name: str = None, url: str = None, amount: in
 @slash.slash(name="playlist")
 async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index: int = 0, limit: int = 0, randomize: bool = False):
 
+    perf_check.start()
     # Check if either url or name have been given
     if not (name or url):
         await ctx.send("Please specify a name or url!")
@@ -370,6 +409,7 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
 
         return
 
+    perf_check.check("Initialization")
     if name:
 
         query = f"SELECT url, path, length FROM {name}"
@@ -410,36 +450,61 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
         # Check if url is valid and extract id
         try:
             url = convert_url(url, id_only=True, playlist=True)
-
+        
         except ValueError:
 
             await ctx.send("Invalid url")
 
             return
+        
+        perf_check.check("Url converting")
 
         await ctx.send("Preparing playlist", hidden=True)
 
-        urls = await yt.get_playlist_contents(url)
+        _ids = await yt.get_playlist_contents(url, full_url=False)
+
+        perf_check.check("Getting playlist")
 
         # Shuffle list if desired
         if randomize:
 
-            random.shuffle(urls)
+            random.shuffle(_ids)
 
         # Shorten the list
-        if limit and limit < len(urls):
+        if limit and limit < len(_ids):
 
-            urls = urls[:limit]
+            _ids = _ids[:limit]
+
+        lengths = await yt.get_length(_ids)
+
+        assert lengths
+        
+        for invalid_video in lengths[1]:
+            _ids.remove(invalid_video)
+
+        lengths = lengths[0]
+
+        perf_check.check("Randomizing and limiting")
         
         # If index is too high, set to 0
         # This adds the song to the end of the queue
         index = check_index(index)
 
-        for song_url in urls:
+        perf_check.check("Getting index")
+
+        urls = list('https://www.youtube.com/watch?v=' + e for e in _ids)
+
+        print(len(urls), len(lengths))
+
+        for i, song_url in enumerate(urls):
 
             try:
                 # Add song to queue
-                await add_to_queue(ctx, song_url, index=index)
+                await add_to_queue(ctx, song_url, index=index, length=lengths[i])
+
+                if client.waiting:
+                    client.start_player()
+                    client.waiting = False
 
                 # Increase index if given
                 if index:
@@ -447,7 +512,7 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
 
             except Exception as e:
 
-                log.error(f"Couldn't add {url} from playlist" + str(e))
+                log.error(f"Couldn't add {song_url} to playlist: " + str(e))
 
         await ctx.send("All songs from playlist have been added")
 
@@ -510,7 +575,10 @@ async def _control(ctx: SlashContext):
 
     while len(client.control_board_messages) > 1:
         old_msg = client.control_board_messages.pop(0)
-        await old_msg.delete()
+        try:
+            await old_msg.delete()
+        except:
+            log.error("Couldn't delte old client board message")
 
 
 @slash.slash(name="skip")
@@ -569,8 +637,9 @@ async def _queue(ctx: SlashContext, amount: int = 10):
 
     # Send messages
     for string in queuelist_strings:
-        sent_message = await ctx.send(string)
-        sent_messages.append(sent_message)
+        if string:
+            sent_message = await ctx.send(string)
+            sent_messages.append(sent_message)
     
     # Add message to list, so it can be updated in the future
     client.queuelist_messages.append((sent_messages, amount))
@@ -580,7 +649,10 @@ async def _queue(ctx: SlashContext, amount: int = 10):
         log.info("Deleting old queuelist message")
         old_messages = client.queuelist_messages.pop(0)
         for msg in old_messages[0]:
-            await msg.delete()
+            try:
+                await msg.delete()
+            except:
+                log.error("Failed to delete old queue list message")
 
 
 @slash.slash(name="quit")
@@ -615,7 +687,7 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
         if not await check_admin(ctx):
             return
 
-        await ctx.defer(hidden=True)
+        await ctx.defer()
 
         try:
             _id = convert_url(url, id_only=True, playlist=True)
@@ -629,7 +701,11 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
             name = file_manager.create_playlist_directory(name)
         
         except ValueError:
-            ctx.send("Invalid playlist name", hidden=True)
+            await ctx.send("Invalid playlist name", hidden=True)
+            raise Exception
+        
+        except FileExistsError:
+            await ctx.send("This")
             return
 
         # Create database table
@@ -638,22 +714,28 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
         
         except Exception as e:
             log.info("Couldn't create table: " + str(e))
-            shutil.rmtree("playlists\\" + name)
+            raise Exception
         
         # Add choice to slash command
         slashcommands.update_playlist_commands()
 
         # Get urls of videos in playlist
         url_list = await yt.get_playlist_contents(_id)
+            
+        client.stop(force=True)
 
         # Download contents
-        await ctx.send("Downloading contents", hidden=True)
+        playlist_msg = await ctx.send(string_creator.create_playlist_download_string("Downloading contents", 0, url_list))
 
-        for url in url_list:
+        for i, url in enumerate(url_list):
 
             try:
-
                 await client.lock.acquire()
+                try:
+                    cont = string_creator.create_playlist_download_string("Downloading contents", i, url_list)
+                    await playlist_msg.edit(content=cont)
+                except Exception as e:
+                    log.warning("Couldn't update message: " + str(e))
                 
                 path, length = await try_to_download(url, "playlists\\" + name)
 
@@ -670,13 +752,15 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
             finally:
                 client.lock.release()
 
-        await ctx.send("Finished creating playlist")
+        await playlist_msg.edit(content="Finished creating playlist")
+        client.start_player()
     
     except Exception as e:
 
         # Revert changes
-        file_manager.delete_directory(name)
+        file_manager.delete_directory("playlists\\" + name)
         db.execute("DROP TABLE " + name)
+        slashcommands.update_playlist_commands()
 
         log.error("Couldn't create playlist. Error: " + str(e))
 
@@ -689,16 +773,64 @@ async def _update_playlist(ctx: SlashContext, name: str, url: str = "") -> None:
     if not await check_admin(ctx):
         return
 
+    if not check_playlist_name(name):
+        await ctx.send("Unknown playlist name")
+        return
+
     await ctx.defer()
 
+    client.stop(force=True)
+
     if not url:
-        pass
+        try:
+            url = db.execute(f"SELECT url FROM playlists WHERE name = '{name}'")[0][0]
+        except (IndexError, TypeError):
+            log.error("Couldn't find playlist url")
+            await ctx.send("An error occurred")
+            return
+
+    try:
+        _id = convert_url(url)
+        new_urls = set([_id])
+    except ValueError:
+        _id = convert_url(url, id_only=True, playlist=True)
+        new_urls = set(await yt.get_playlist_contents(_id))
+
+    old_urls = db.execute(f"SELECT url FROM `{name}`")
+    old_urls = set(e[0] for e in old_urls)
+
+    urls_to_download = list(new_urls.difference(old_urls))
+
+    msg = await ctx.send(string_creator.create_playlist_download_string("Updating contents", 0, urls_to_download))
+
+    for i, url_to_download in enumerate(urls_to_download):
+        try:
+            await client.lock.acquire()
+            await msg.edit(content=string_creator.create_playlist_download_string("Updating contents", i, urls_to_download))
+
+            path, length = await try_to_download(url_to_download, "playlists\\" + name)
+            # Change path to queue directory
+            path = r"playlists\\" + name + r"\\" + path
+            db.insert_into_playlist(name, url, path, int(length))
+            log.info(f"{path} added to {name} playlist")
+        except Exception as e:
+            log.error(f"Couldn't add {url} to playlist. Error: " + str(e))
+        finally:
+            client.lock.release()
+        
+    await msg.edit(content="Finished updating playlist")
+    client.start_player()
 
 
 @slash.subcommand(base="delete", name="playlist")
 async def _delete_playlist(ctx: SlashContext, name: str) -> None:
 
     if not await check_admin(ctx):
+        return
+    
+    if not check_playlist_name(name):
+        await ctx.send("Unknown playlist!")
+        slashcommands.update_playlist_commands()
         return
 
     await ctx.defer()
@@ -719,9 +851,8 @@ async def _delete_playlist(ctx: SlashContext, name: str) -> None:
 
     await ctx.send(name + " was deleted")
 
-
 @slash.slash(name="repeat")
-async def _repeat(ctx: SlashContext, amount: int = -1):
+async def _repeat(ctx: SlashContext, amount: int = -1) -> None:
     if amount > -1 and client.repeat:
         client.repeat_counter = amount
         await ctx.send(f"I will repeat {client.current_track_name} {amount} time(s)")
@@ -732,7 +863,74 @@ async def _repeat(ctx: SlashContext, amount: int = -1):
     else:
         client.repeat = True
         client.repeat_counter = amount
-        await ctx.send(f"I will repeat {client.current_track_name} infinitely")
+        await ctx.send(f"I will repeat {client.current_track_name} indefinitely")
+
+
+@slash.slash(name="shuffle")
+async def _shuffle(ctx: SlashContext) -> None:
+
+    log.info("Shuffling playlist")
+
+    await ctx.defer()
+
+    query = f"SELECT id FROM queuelist WHERE queue_id > {client.queue_counter}"
+    queuelist = db.execute(query)
+
+    random.shuffle(queuelist)
+    for i, entry in enumerate(queuelist):
+        query = f"UPDATE queuelist SET queue_id = {i + client.queue_counter} WHERE id = {entry[0]}"
+        db.execute(query)
+    
+    await client.update_queuelist_messages()
+    await ctx.send("The queuelist has been shuffled")
+
+
+@slash.slash(name="lyrics")
+async def _lyrics(ctx: SlashContext, full=False):
+    await ctx.defer()
+    url = db.get_current_url(client.queue_counter)
+
+    if not url:
+        await ctx.send("No song playing!")
+        return
+
+    _id = convert_url(url, id_only=True)
+
+    if full:
+
+        current_lyrics = await lyrics.get_genius_lyrics(_id, env_var)
+        msg_list = string_creator.create_lyrics_message(current_lyrics)
+
+        for msg in msg_list:
+            await ctx.send(msg)
+
+    else:
+        current_lyrics = await lyrics.get_lyrics(ctx, _id, client, yt, env_var)
+
+        if current_lyrics[0] == "genius":
+            msg_list = string_creator.create_lyrics_message(current_lyrics)
+
+            for msg in msg_list:
+                await ctx.send(msg)
+        elif current_lyrics[0] == "cancelled":
+
+            await ctx.send("Download was cancelled")
+
+        elif all(not e for e in current_lyrics):
+            await ctx.send("Couldn't find lyrics")
+
+        else:
+            client.current_lyrics_index = 1
+            client.current_lyrics = lyrics.create_lyrics_list(*current_lyrics)
+            msg = await ctx.send("Loading lyrics", components=[client.lyrics_action_row])
+            client.lyrics_messages.append(msg)
+            while len(client.lyrics_messages) > 1:
+                old_msg = client.lyrics_messages.pop(0)
+                try:
+                    await old_msg.delete()
+                except:
+                    log.error("Couldn't delete old lyrics message")
+                log.info(str(old_msg) + " was deleted")
 
 
 @client.event
@@ -752,11 +950,9 @@ async def on_ready() -> None:
     # Get custom emojis
     client.get_emojis()
 
-    # TODO Change status
-    # TODO volume / normalize
+    await client.change_presence(status=discord.Status.online)
+    
     # TODO reset
-    # TODO lyrics
-    # TODO shuffle
     # TODO update playlist
     # TODO bugfix
     # TODO playlist private
@@ -779,22 +975,28 @@ async def on_component(ctx: ComponentContext):
         "play_pause_toggle": control_board.pause
     }
 
-    # Get function from custom_id of component
-    try:
-        function = buttons[ctx.custom_id]
+    if ctx.custom_id == "reduce_lyrics_timer":
+        client.lyrics_timer -= 1
+        await ctx.send("Decreased", delete_after=1.5)
+    elif ctx.custom_id == "increase_lyrics_timer":
+        client.lyrics_timer += 1
+        await ctx.send("Increased", delete_after=1.5)
+    elif ctx.custom_id == "show_full_lyrics":
+        await client.show_full_lyrics(ctx)
+    else:
+        # Get function from custom_id of component
+        try:
+            function = buttons[ctx.custom_id]
 
-    except Exception as e:
-        log.error("No function assigned! " + str(e))
-        await ctx.send("Something went wrong!", hidden=True)
-        return
-    
-    await function(client, db, ctx)
+        except Exception as e:
+            log.error("No function assigned! " + str(e))
+            await ctx.send("Something went wrong!", hidden=True)
+            return
+        
+        await function(client, db, ctx)
 
 
 if __name__ == "__main__":
-
-    # Get environment variables
-    env_var = EnvVariables()
 
     # Create DataBase class instance
     db = DataBase(env_var.SQL_USER, env_var.SQL_PW)
@@ -808,6 +1010,9 @@ if __name__ == "__main__":
 
     # Create control board commands manager
     control_board = control.ControlBoard()
+
+    # Create performance checker
+    perf_check = PerfCheck()
 
     # TODO Create directories
     # TODO visibility

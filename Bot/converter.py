@@ -32,6 +32,7 @@ def convert_time(s: int) -> tuple:
     '''
     Converts time from seconds to hours, minutes and seconds
     '''
+    assert s
     hours, s = divmod(s, 3600)
     mins, sec = divmod(s, 60)
 

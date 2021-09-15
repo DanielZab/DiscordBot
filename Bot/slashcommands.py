@@ -13,6 +13,7 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 
 # Get url
 url = "https://discord.com/api/v8/applications/697051009138163732/guilds/456109062833176598/commands"
+# url = "https://discord.com/api/v8/applications/697051009138163732/guilds/387214698757750784/commands"
 
 # Create header
 headers = {
@@ -64,7 +65,7 @@ def get_delete_command(choice: list = []):
         "options": [
             {
                 "name": "playlist",
-                "description": "Delete a playlist (Admin only)",
+                "description": "Delete a playlist. Pauses player temporarily (Admin only)",
                 "type": 1,
                 "options": [
                     {
@@ -88,7 +89,7 @@ def get_update_command(choice: list = []):
         "options": [
             {
                 "name": "playlist",
-                "description": "Update a playlist (Admin only)",
+                "description": "Update a playlist. Pauses player temporarily (Admin only)",
                 "type": 1,
                 "options": [
                     {
@@ -97,6 +98,12 @@ def get_update_command(choice: list = []):
                         "type": 3,
                         "required": True,
                         "choices": choice
+                    },
+                    {
+                        "name": "url",
+                        "description": "Add contents of which playlist or video",
+                        "type": 3,
+                        "required": False
                     }
                 ]
             }
@@ -253,7 +260,7 @@ create = {
     "options": [
         {
             "name": "playlist",
-            "description": "Create a playlist (Admin only)",
+            "description": "Create a playlist. Pauses player temporarily (Admin only)",
             "type": 1,
             "options": [
                 {
@@ -291,11 +298,25 @@ repeat = {
     ]
 }
 
+shuffle = {
+    "name": "shuffle",
+    "description": "Shuffles the playlist"
+}
+
+lyrics = {
+    "name": "lyrics",
+    "description": "Shows the lyrics",
+    "options": [{
+        "name": "full",
+        "description": "View all lyrics at once. Show lyrics in sync with music otherwise. False if omitted",
+        "type": 5
+    }]
+}
+
 update = get_update_command()
 
 delete = get_delete_command()
 # endregion
-
 
 
 def post(js):
@@ -341,6 +362,5 @@ def update_playlist_commands() -> None:
 
 
 if __name__ == "__main__":
-    post(play)
     update_playlist_commands()
 # TODO dynamic url

@@ -141,7 +141,7 @@ class DataBase:
                     ")  ENGINE=INNODB;"])
         self.execute(query)
 
-        query = f"INSERT INTO playlists VALUES ('{name}', '{url}')"
+        query = f"INSERT INTO playlists (name, url) VALUES ('{name}', '{url}')"
 
         self.execute(query)
 
@@ -160,4 +160,17 @@ class DataBase:
         for i, song in enumerate(queuelist, start=1):
             query = f"UPDATE queuelist SET queue_id={i} WHERE id={song[0]}"
         # TODO Test when many songs in queue
+    
+    def get_current_url(self, counter):
+        log.info("Getting current url")
+
+        query = f"SELECT url FROM queuelist WHERE queue_id = {counter}"
+        try:
+            url = self.execute(query)[0][0]
+        
+            log.info(f"Current url: {url}")
+            return url
+
+        except IndexError:
+            log.error("No currrent track")
     
