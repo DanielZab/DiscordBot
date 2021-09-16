@@ -1,6 +1,7 @@
 '''
 Handles commands which can be called from the control board
 '''
+
 import asyncio
 import database
 from my_client import MyClient
