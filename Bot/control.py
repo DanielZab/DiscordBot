@@ -1,7 +1,6 @@
 '''
 Handles commands which can be called from the control board
 '''
-
 import asyncio
 import database
 from my_client import MyClient
@@ -38,7 +37,7 @@ class ControlBoard:
         log.info(f"Skipping {amount} song(s)")
 
         await ctx.defer()
-        
+
         # Check if playing music and return if not
         if not self.client.vc_check():
             await ctx.send("Currently not playing!")
@@ -70,7 +69,7 @@ class ControlBoard:
 
             # Increase queue counter by amount
             self.client.queue_counter += amount
-        
+
         # Reduce queue counter by one, since its value will be increased
         # in song_done method after song has ended
         self.client.queue_counter -= 1
@@ -101,7 +100,7 @@ class ControlBoard:
         repeat_condition = amount == 0 and self.client.vc_check() and self.client.song_timer >= 5
 
         log.info(f"Going back by {amount}, with repeat_condition {repeat_condition}")
-    
+
         # Check if there are previous songs and not repeating
         if zero_based_counter < 1 and not repeat_condition:
             log.warning("No previous song!")
@@ -118,7 +117,7 @@ class ControlBoard:
             # Set amount to 1 if none was passed
             if amount == 0:
                 amount = 1
-            
+
             # Stop repeating in case current song is being repeated
             self.client.stop_repeat()
 
@@ -140,9 +139,9 @@ class ControlBoard:
 
             # Start player
             self.client.start_player()
-        
+
         await ctx.send("Gone back!", delete_after=3)
-        
+
     async def pause(self, ctx: Union[SlashContext, ComponentContext]) -> None:
         '''
         Pauses/Resumes player
@@ -166,7 +165,7 @@ class ControlBoard:
         elif self.client.vc.is_playing():
             self.client.vc.pause()
             await ctx.send("Paused!", delete_after=3)
-        
+
         # Error detection
         else:
             log.error("Player neither paused nor playing, although active")
@@ -174,7 +173,7 @@ class ControlBoard:
 
     async def fast_forward(self, ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
         '''
-        Fasts forward a song. Number of seconds to skip is specified by amount paramter. 
+        Fasts forward a song. Number of seconds to skip is specified by amount paramter.
         Skips 10 seconds by default
         '''
 
@@ -209,7 +208,7 @@ class ControlBoard:
 
     async def rewind(self, ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
         '''
-        Rewinds a song. Number of seconds to rewind is specified by amount paramter. 
+        Rewinds a song. Number of seconds to rewind is specified by amount paramter.
         Rewinds 10 seconds by default
         '''
 
@@ -245,20 +244,20 @@ class ControlBoard:
     async def stop(self, ctx: Union[SlashContext, ComponentContext], silent=False):
         '''
         Stops the player and resets all data.
-        If silent parameter is True, no message will be sent, 
-        context wont be deferred and method will continue 
+        If silent parameter is True, no message will be sent,
+        context wont be deferred and method will continue
         regardless whether player is active or not
         '''
         if not silent:
             await ctx.defer()
 
         log.info("Stopping player")
-        
+
         # Check if player is active
         if not self.client.vc_check() and not silent:
             await ctx.send("Currently not playing audio")
             return
-        
+
         # Reset database data
         self.db.setup()
 
@@ -270,7 +269,7 @@ class ControlBoard:
 
         # Delete all messages showing the queue list
         await self.client.delete_queuelist_messages()
-    
+
         # Stop client playback
         self.client.stop()
 
@@ -283,7 +282,7 @@ class ControlBoard:
         while self.client.update_duration.is_running() and i < 50:
             i += 1
             await asyncio.sleep(0.1)
-        
+
         if i == 50:
             log.warning(f"Update duration coroutine didn't stop within {i / 10} seconds")
 

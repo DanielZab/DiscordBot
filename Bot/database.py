@@ -64,7 +64,7 @@ class Database:
                 log.debug("Closing connection")
                 cursor.close()
                 connection.close()
-            
+
             return result
 
     def setup(self) -> None:
@@ -86,11 +86,11 @@ class Database:
 
         # Create playlists table
         query = " ".join(["CREATE TABLE IF NOT EXISTS playlists (",
-                    "id INT AUTO_INCREMENT,",
-                    "name VARCHAR(255) NOT NULL,",
-                    "url VARCHAR(255) NOT NULL,",
-                    "PRIMARY KEY (id)",
-                    ")  ENGINE=INNODB;"])
+                          "id INT AUTO_INCREMENT,",
+                          "name VARCHAR(255) NOT NULL,",
+                          "url VARCHAR(255) NOT NULL,",
+                          "PRIMARY KEY (id)",
+                          ")  ENGINE=INNODB;"])
         self.execute(query)
 
         # Delete all entries from queuelist table
@@ -129,8 +129,8 @@ class Database:
         log.info(f"Moving all entries that are equal or bigger than {index}")
 
         self.execute(" ".join(["UPDATE queuelist",
-                            "SET queue_id = queue_id + 1",
-                            f"WHERE queue_id >= {index};"]))
+                               "SET queue_id = queue_id + 1",
+                               f"WHERE queue_id >= {index};"]))
 
     def insert_into_queue(self, index: int, url: str, length: float, path: str, name: str) -> None:
         '''
@@ -146,9 +146,9 @@ class Database:
                 index = 1 + result
             else:
                 index = 1
-        
+
         self.add_to_queue(index, url, path, length, name)
-    
+
     def get_max_queue_id(self) -> int:
         '''
         Gets and returns index of last track in queue
@@ -164,7 +164,7 @@ class Database:
 
         log.info("Maximum queue_id: " + str(index))
         return index
-    
+
     def create_playlist_table(self, name: str, url: str) -> None:
         '''
         Creates a table containing the data of all songs of a playlist
@@ -172,12 +172,12 @@ class Database:
 
         # Create table
         query = " ".join([f"CREATE TABLE IF NOT EXISTS `{name}` (",
-                    "id INT AUTO_INCREMENT,",
-                    "url VARCHAR(255) NOT NULL,",
-                    "path VARCHAR(255),",
-                    "length FLOAT,",
-                    "PRIMARY KEY (id)",
-                    ")  ENGINE=INNODB;"])
+                          "id INT AUTO_INCREMENT,",
+                          "url VARCHAR(255) NOT NULL,",
+                          "path VARCHAR(255),",
+                          "length FLOAT,",
+                          "PRIMARY KEY (id)",
+                          ")  ENGINE=INNODB;"])
         self.execute(query)
 
         # Insert playlist name into playlists table
@@ -194,7 +194,7 @@ class Database:
         # Insert track
         query = f"INSERT INTO `{name}` (url, path, length) VALUES ('{url}', '{path}', {length});"
         self.execute(query)
-    
+
     def reset_queuelist_ids(self) -> None:
         '''
         Closes gaps in queue list
@@ -210,7 +210,7 @@ class Database:
         for i, song in enumerate(queuelist, start=1):
             query = f"UPDATE queuelist SET queue_id={i} WHERE id={song[0]}"
         # TODO Test when many songs in queue
-    
+
     def get_current_url(self, counter) -> str:
         '''
         Gets and returns url of current track
@@ -221,10 +221,9 @@ class Database:
         try:
             query = f"SELECT url FROM queuelist WHERE queue_id = {counter}"
             url = self.execute(query)[0][0]
-        
+
             log.info(f"Current url: {url}")
             return url
 
         except IndexError:
             log.error("No currrent track")
-    

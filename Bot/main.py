@@ -952,7 +952,8 @@ async def on_ready() -> None:
 
     if env_var.AUTO_HIDE == 'True':
 
-        hide.hide()
+        log.info("-------------------------")
+        console_visibility.hide()
 
     # Get custom emojis
     client.get_emojis()
@@ -1020,6 +1021,9 @@ if __name__ == "__main__":
 
     # Create performance checker
     perf_check = PerfCheck()
+
+    # Create visibility manager
+    console_visibility = hide.console
 
     # TODO Create directories
     # TODO visibility

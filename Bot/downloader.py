@@ -1,14 +1,12 @@
 '''
 Performs all download processes
 '''
-
 import logging, subprocess, os, functools
 import pafy
 import youtube_dl
 from pydub import AudioSegment
 import asyncio
 
-from youtube_dl.compat import _TreeBuilder
 log = logging.getLogger(__name__)
 
 
@@ -41,7 +39,7 @@ def normalizeAudio(audiopath: str, destination_path: str) -> int:
     Returns the length of the track in seconds
     '''
     log.info(f"Normalizing {audiopath}")
-    
+
     # Read file with pydub
     song = AudioSegment.from_file(audiopath)
 
@@ -87,16 +85,16 @@ async def try_to_download(url: str, target: str) -> tuple:
                                                            quiet=True))
 
     except Exception as e:
-        
+
         # Download audio via youtube-dl
         log.error("Pafy failed downloading: " + str(e))
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, download_audio_manually, url)
-    
+
     # Get path of downloaded file by getting all files in test directory
     # and removing all files that already were there
     path = list(set(os.listdir("temp")).difference(set(files)))[0]
-    
+
     # Normalize volume of track, move it to the queue folder and get its length
     loop = asyncio.get_event_loop()
     length = await loop.run_in_executor(None, normalizeAudio, "temp\\" + path, target + "\\" + path)
@@ -131,13 +129,13 @@ async def dl_captions(url: str, lang: str):
         dl_function = functools.partial(ydl.download,
                                         [url])
         await loop.run_in_executor(None, dl_function)
-    
+
     try:
-        
+
         # Get path of downloaded file by getting all files in test directory
         # and removing all files that already were there
         path = list(set(os.listdir("captions")).difference(set(files)))[0]
-    
+
     except IndexError:
         log.info("No captions downloaded")
         return None

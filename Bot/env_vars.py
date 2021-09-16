@@ -1,7 +1,6 @@
 '''
-Loads all environment variables
+Loads all environment variables from the .env file
 '''
-
 import os
 from dotenv import load_dotenv
 

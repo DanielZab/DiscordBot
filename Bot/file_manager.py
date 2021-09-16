@@ -99,10 +99,10 @@ def get_playlists():
         folders = os.listdir("playlists")
         for folder in folders:
 
-            #Check if file is a directory
+            # Check if file is a directory
             if os.path.isdir("playlists\\" + folder):
 
                 # Add playlist to container
                 playlists.append(folder)
-    
+
     return playlists
