@@ -17,13 +17,13 @@ log = logging.getLogger(__name__)
 class ControlBoard:
     '''
     Contains all control board commands
+    Parameters:
+        client: the main my_client object
+        db:     the main Database object
     '''
 
     def __init__(self, client: MyClient, db: database.Database) -> None:
-        '''
-        Client contains the main my_client object
-        Db contains the main Database object
-        '''
+
         self.client = client
         self.db = db
 
@@ -45,7 +45,7 @@ class ControlBoard:
 
         # Get number of songs that can be skipped
         max_id = self.db.get_max_queue_id()
-        skippable_songs = max_id - self.client.queue_counter
+        skippable_songs = (max_id - self.client.queue_counter) + 1
 
         # Check if there are songs to skip
         if skippable_songs < 1:
@@ -244,19 +244,22 @@ class ControlBoard:
     async def stop(self, ctx: Union[SlashContext, ComponentContext], silent=False):
         '''
         Stops the player and resets all data.
-        If silent parameter is True, no message will be sent
+        If silent parameter is True, no message will be sent, 
+        context wont be deferred and method will continue 
+        regardless whether player is active or not
         '''
-        await ctx.defer()
+        if not silent:
+            await ctx.defer()
+
+        log.info("Stopping player")
         
         # Check if player is active
-        if not self.client.vc_check():
+        if not self.client.vc_check() and not silent:
             await ctx.send("Currently not playing audio")
+            return
         
         # Reset database data
         self.db.setup()
-
-        # Stop client playback
-        self.client.stop()
 
         # Disconnect from voice channel
         await self.client.disconnect()
@@ -266,9 +269,22 @@ class ControlBoard:
 
         # Delete all messages showing the queue list
         await self.client.delete_queuelist_messages()
+    
+        # Stop client playback
+        self.client.stop()
 
-        # Wait half a second
-        await asyncio.sleep(0.5)
+        # Cancel update duration couroutine
+        self.client.update_duration.cancel()
+
+        # Wait until either update duration coroutine is finished
+        # or 5 seconds have passed
+        i = 0
+        while self.client.update_duration.is_running() and i < 50:
+            i += 1
+            await asyncio.sleep(0.1)
+        
+        if i == 50:
+            log.warning(f"Update duration coroutine didn't stop within {i / 10} seconds")
 
         # Reset bot data
         self.client.setup()

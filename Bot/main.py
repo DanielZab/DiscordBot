@@ -16,7 +16,7 @@ from pydub.utils import which
 from env_vars import EnvVariables
 
 # Database connection
-from database import DataBase
+from database import Database
 
 # File manager
 import file_manager
@@ -231,17 +231,15 @@ async def add_to_queue(ctx: SlashContext, url: str, index: int = 0, file_data: U
     log.info(f"Inserting into queue {index}, {url}, {length}, {path}, {name}")
     db.insert_into_queue(index, url, length, path, name)
 
-    perf_check.check("Inserting into queue")
+
 
     if client.waiting:
 
         client.waiting = False
 
         client.check_player.start()
-    
-    await client.update_queuelist_messages()
 
-    perf_check.check("Updating ql messages")
+    perf_check.check("Inserting into queue")
 
     return name
 
@@ -273,6 +271,8 @@ async def play_audio(ctx: SlashContext, url: str, index: int) -> None:
 
         await ctx.send("Something went wrong")
         log.error("Couldn't add to queuelist " + str(e))
+    
+    await client.update_queuelist_messages()
 
 
 @slash.slash(name="play")
@@ -442,6 +442,7 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
             if index:
                 index += 1
 
+        await client.update_queuelist_messages()
         await ctx.send("Playlist added")
     
     elif url:
@@ -513,6 +514,7 @@ async def _playlist(ctx: SlashContext, url: str = None, name: str = None, index:
 
                 log.error(f"Couldn't add {song_url} to playlist: " + str(e))
 
+        await client.update_queuelist_messages()
         await ctx.send("All songs from playlist have been added")
 
 # TODO player reset/loop check
@@ -626,11 +628,11 @@ async def _queue(ctx: SlashContext, amount: int = 10):
     queuelist = db.execute(query)
 
     if len(queuelist) < 1:
-        await ctx.send("No songs in queue!")
-        return
+        queuelist_strings = ["No songs in queue!"]
 
     # Create message strings
-    queuelist_strings = string_creator.create_queue_string(queuelist, amount)
+    else:
+        queuelist_strings = string_creator.create_queue_string(queuelist, amount)
 
     sent_messages = []
 
@@ -641,7 +643,7 @@ async def _queue(ctx: SlashContext, amount: int = 10):
             sent_messages.append(sent_message)
     
     # Add message to list, so it can be updated in the future
-    client.queuelist_messages.append((sent_messages, amount))
+    client.queuelist_messages.append([sent_messages, amount])
 
     # Delete all old messages
     while len(client.queuelist_messages) > 1:
@@ -660,13 +662,13 @@ async def _quit(ctx: SlashContext):
     # Check for admin permissions
     if not await check_admin(ctx):
         return
-
+    
     await ctx.defer()
 
     client.update_duration.cancel()
 
     # Disconnect from voice channel, reset queuelist table and delete files
-    await control_board.stop(client, db, ctx, silent=True)
+    await control_board.stop(ctx, silent=True)
 
     # Set status to offline
     await client.change_presence(status=discord.Status.offline)
@@ -674,7 +676,11 @@ async def _quit(ctx: SlashContext):
     await ctx.send("Bye!")
 
     # Stop bot
-    await client.close()
+    try:
+        await client.close()
+    except RuntimeError:
+        log.info("Runtime error while closing bot")
+
     log.info("Bot was closed")
 
 
@@ -1000,7 +1006,7 @@ async def on_component(ctx: ComponentContext):
 if __name__ == "__main__":
 
     # Create DataBase class instance
-    db = DataBase(env_var.SQL_USER, env_var.SQL_PW)
+    db = Database(env_var.SQL_USER, env_var.SQL_PW)
     db.setup()
 
     # Create YouTube class instance

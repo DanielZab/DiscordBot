@@ -249,9 +249,12 @@ class MyClient(commands.Bot):
             for messages in self.queuelist_messages:
 
                 for message in messages[0]:
-
-                    messages.remove(message)
-                    await message.delete()
+                    if message in messages:
+                        messages.remove(message)
+                    try:
+                        await message.delete()
+                    except discord.errors.NotFound:
+                        log.warning("Couldn't delete queue list message")
 
             return
 
@@ -284,8 +287,8 @@ class MyClient(commands.Bot):
 
         log.info("Deleting all queuelist messages")
 
-        for message_tuple in self.queuelist_messages:
-            for msg in message_tuple[0]:
+        for message_list in self.queuelist_messages:
+            for msg in message_list[0]:
                 try:
                     await msg.delete()
                 except Exception as e:
@@ -327,7 +330,12 @@ class MyClient(commands.Bot):
             old_fields = msg.embeds[0].fields
             new_fields = new_embed.fields
             if len(old_fields) != len(new_fields) or not all(old_fields[e].value == new_fields[e].value for e in range(len(old_fields))):
-                await msg.edit(embed=new_embed)
+                try:
+                    await msg.edit(embed=new_embed)
+                except discord.errors.NotFound:
+                    log.warning("Control board message not found")
+                    if msg in self.control_board_messages:
+                        self.control_board_messages.remove(msg)
     
     async def update_lyrics(self):
         
