@@ -1,7 +1,9 @@
-# Environment variables loader
+'''
+Loads all environment variables
+'''
+
 import os
 from dotenv import load_dotenv
-import json
 
 
 class EnvVariables():

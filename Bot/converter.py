@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 
 def convert_url(url: str, id_only: bool = False, playlist: bool = False) -> str:
     '''
-    Converts youtube urls to a unique format
+    Converts youtube urls to a unique format and returns the result
     id_only specifies, whether to return only the id, or the whole url
     playlist specifies, whether the url refers to a playlist or a video
     Raises a ValueError when url is invalid
@@ -48,6 +48,7 @@ def convert_url(url: str, id_only: bool = False, playlist: bool = False) -> str:
 def convert_time(s: int) -> tuple:
     '''
     Converts time from seconds to a tuple containing hours, minutes and seconds
+    and returns the result
     '''
 
     hours, s = divmod(s, 3600)
@@ -58,7 +59,7 @@ def convert_time(s: int) -> tuple:
 
 def format_time_ffmpeg(s: int) -> str:
     '''
-    Converts seconds to a ffmpeg time format
+    Converts seconds to a ffmpeg time format and returns the result
     '''
 
     t = convert_time(s)
@@ -68,7 +69,7 @@ def format_time_ffmpeg(s: int) -> str:
 
 def get_name_from_path(path: str) -> str:
     '''
-    Gets the name of a song from its path
+    Gets and returns the name of a song from its path
     '''
 
     # Match path

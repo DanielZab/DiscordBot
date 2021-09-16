@@ -5,10 +5,8 @@ There are three kinds of tables:
     playlists table (contains all downloaded playlist names)
     playlist contents table (each table contains all necessary information of a single playlist)
 '''
-from sys import intern
 import mysql.connector
 import logging
-from typing import Union
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +24,7 @@ class Database:
 
     def execute(self, query) -> list:
         '''
-        Starts a connection to database and executes query
+        Starts a connection to database, executes query and returns the result
         '''
 
         try:
@@ -153,7 +151,7 @@ class Database:
     
     def get_max_queue_id(self) -> int:
         '''
-        Gets index of last track in queue
+        Gets and returns index of last track in queue
         '''
 
         log.debug("Getting maximum queue_id")
@@ -197,7 +195,7 @@ class Database:
         query = f"INSERT INTO `{name}` (url, path, length) VALUES ('{url}', '{path}', {length});"
         self.execute(query)
     
-    def reset_queuelist_ids(self):
+    def reset_queuelist_ids(self) -> None:
         '''
         Closes gaps in queue list
         '''
@@ -215,7 +213,7 @@ class Database:
     
     def get_current_url(self, counter) -> str:
         '''
-        Gets url of current track
+        Gets and returns url of current track
         '''
 
         log.debug("Getting current url")
