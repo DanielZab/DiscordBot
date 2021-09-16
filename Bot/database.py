@@ -9,7 +9,7 @@ from mysql.connector.errors import Error
 log = logging.getLogger(__name__)
 
 
-class DataBase:
+class Database:
     '''
     Connects to database and performs query
     '''

@@ -583,37 +583,37 @@ async def _control(ctx: SlashContext):
 @slash.slash(name="skip")
 async def _skip(ctx: Union[SlashContext, ComponentContext], amount: int = 1) -> None:
 
-    await control_board.skip(client, db, ctx, amount=amount)
+    await control_board.skip(ctx, amount=amount)
 
 
 @slash.slash(name="back")
 async def _back(ctx: Union[SlashContext, ComponentContext], amount: int = 1) -> None:
 
-    await control_board.back(client, db, ctx, amount=amount)
+    await control_board.back(ctx, amount=amount)
 
 
 @slash.slash(name="pause")
 async def _pause(ctx: Union[SlashContext, ComponentContext]) -> None:
 
-    await control_board.pause(client, db, ctx)
+    await control_board.pause(ctx)
 
 
 @slash.slash(name="fast_forward")
 async def _fast_forward(ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
 
-    await control_board.fast_forward(client, db, ctx, amount=amount)
+    await control_board.fast_forward(ctx, amount=amount)
 
 
 @slash.slash(name="rewind")
 async def _rewind(ctx: Union[SlashContext, ComponentContext], amount: int = 10) -> None:
 
-    await control_board.rewind(client, db, ctx, amount=amount)
+    await control_board.rewind(ctx, amount=amount)
 
 
 @slash.slash(name="stop")
 async def _stop(ctx: Union[SlashContext, ComponentContext]):
 
-    await control_board.stop(client, db, ctx)
+    await control_board.stop(ctx)
 
 
 @slash.slash(name="queue")
@@ -852,10 +852,12 @@ async def _delete_playlist(ctx: SlashContext, name: str) -> None:
 
 @slash.slash(name="repeat")
 async def _repeat(ctx: SlashContext, amount: int = -1) -> None:
-    if amount > -1 and client.repeat:
-        client.repeat_counter = amount
-        await ctx.send(f"I will repeat {client.current_track_name} {amount} time(s)")
-    elif client.repeat:
+    '''
+    Repeats the current song amount times. 
+    Repeats indefinitely if amount has a negative value
+    '''
+
+    if client.repeat and amount < 1:
         client.repeat = False
         client.repeat_counter = -1
         await ctx.send(f"I won't repeat {client.current_track_name} anymore")
@@ -992,7 +994,7 @@ async def on_component(ctx: ComponentContext):
             await ctx.send("Something went wrong!", hidden=True)
             return
         
-        await function(client, db, ctx)
+        await function(ctx)
 
 
 if __name__ == "__main__":
@@ -1008,7 +1010,7 @@ if __name__ == "__main__":
     genius = lyricsgenius.Genius(env_var.GENIUS_TOKEN)
 
     # Create control board commands manager
-    control_board = control.ControlBoard()
+    control_board = control.ControlBoard(client, db)
 
     # Create performance checker
     perf_check = PerfCheck()

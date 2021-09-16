@@ -230,6 +230,10 @@ class MyClient(commands.Bot):
 
     def reset_player(self):
         self.reset_player_loop.start()
+    
+    def stop_repeat(self):
+        self.repeat = False
+        self.repeat_counter = -1
 
     async def update_queuelist_messages(self) -> None:
 
@@ -366,7 +370,9 @@ class MyClient(commands.Bot):
                 await self.change_presence(activity=None)
             self.current_status = self.current_track_name
 
-
+    async def disconnect(self):
+        if self.vc:
+            await self.vc.disconnect()
     @tasks.loop(count=1)
     async def check_player(self) -> None:
         '''
