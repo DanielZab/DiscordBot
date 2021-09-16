@@ -3,6 +3,7 @@ from discord import Embed
 import tkinter
 from tkinter import font as tkFont
 from typing import List
+from lyricsgenius.api import Song
 log = logging.getLogger(__name__)
 
 
@@ -111,15 +112,18 @@ def create_control_board_message_string(name: str, song_timer: int, track_durati
     return new_msg
 
 
-def create_lyrics_message(lyrics: str) -> List[str]:
+def create_genius_lyrics_message(lyrics: Song) -> List[str]:
 
     # Split lyrics into lines
-    lyrics_lines = lyrics.split('\n')
+    lyrics = lyrics.lyrics
+    lyrics_lines = list(filter(lambda x: x != "", lyrics.split('\n')))
     
     # Combine 20 lines to one message
     msg = ""
     final_msg_list = []
     for i, line in enumerate(lyrics_lines):
+        if i:
+            msg += '\n'
         msg += line
 
         if i % 20 == 0 and i != 0:

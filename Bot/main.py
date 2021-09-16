@@ -5,13 +5,6 @@ import enum
 import logger
 import hide
 
-from discord import embeds
-from discord_slash.model import SlashMessage
-
-# Audio file imports
-from pydub import AudioSegment
-from pydub.utils import which
-
 # Environment variables
 from env_vars import EnvVariables
 
@@ -22,7 +15,7 @@ from database import Database
 import file_manager
 
 # Music downloader
-from downloader import normalizeAudio, try_to_download
+from downloader import try_to_download
 
 # Converter
 from converter import convert_time, convert_url, get_name_from_path
@@ -46,7 +39,7 @@ from per_check import PerfCheck
 import slashcommands
 
 # Standard library imports
-import os, shutil, datetime, sys, random, time, math, re
+import random
 
 # Google and Discord api imports
 import discord
@@ -74,9 +67,8 @@ slash = SlashCommand(client)
 # Get environment variables
 env_var = EnvVariables()
 
-#TODO end of lyrics
-#TODO return when no length in add_to_queue
-#TODO prevent empty lyrics and milliseconds
+# TODO end of lyrics
+# TODO return when no length in add_to_queue
 
 def check_index(index: int) -> int:
 
@@ -906,7 +898,10 @@ async def _lyrics(ctx: SlashContext, full=False):
     if full:
 
         current_lyrics = await lyrics.get_genius_lyrics(_id, env_var)
-        msg_list = string_creator.create_lyrics_message(current_lyrics)
+        if not current_lyrics:
+            await ctx.send("Could't find lyrics")
+            return
+        msg_list = string_creator.create_genius_lyrics_message(current_lyrics)
 
         for msg in msg_list:
             await ctx.send(msg)
@@ -915,7 +910,8 @@ async def _lyrics(ctx: SlashContext, full=False):
         current_lyrics = await lyrics.get_lyrics(ctx, _id, client, yt, env_var)
 
         if current_lyrics[0] == "genius":
-            msg_list = string_creator.create_lyrics_message(current_lyrics)
+
+            msg_list = string_creator.create_genius_lyrics_message(current_lyrics[1])
 
             for msg in msg_list:
                 await ctx.send(msg)
@@ -952,7 +948,6 @@ async def on_ready() -> None:
 
     if env_var.AUTO_HIDE == 'True':
 
-        log.info("-------------------------")
         console_visibility.hide()
 
     # Get custom emojis

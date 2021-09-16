@@ -137,23 +137,29 @@ async def get_lyrics(ctx: SlashContext, _id: str, client: MyClient, yt: YouTube,
 
     # Try to get title and artist from the 'music in this video' section
     # in the video's description
-    data = await get_song_data(_id)
+    artist, title = await get_song_data(_id)
 
-    # Get lyrics via lrc-kit library
-    log.info("Trying to get lrc-kit lyrics")
-    lrc_lyrics = get_lrc(data[0], data[1])
+    # Check if artist was found
+    if artist:
 
-    # Check if lyrics were found
-    if lrc_lyrics:
+        # Get lyrics via lrc-kit library
+        log.info("Trying to get lrc-kit lyrics")
+        lrc_lyrics = get_lrc(artist, title)
 
-        # Return source and file path
-        return 'lrc', lrc_lyrics
+        # Check if lyrics were found
+        if lrc_lyrics:
 
+            # Return source and file path
+            return 'lrc', lrc_lyrics
+
+    log.info("Trying to get genius lyrics")
     # Get lyrics via lyricsgenius
-    genius_lyrics = await get_genius_lyrics(_id, env, artist=data[0], track=data[1])
+    genius_lyrics = await get_genius_lyrics(_id, env, artist=artist, track=title)
 
     # Check if lyrics were found
     if genius_lyrics:
+        
+        # Check if lyrics contain multiple lines
         return "genius", genius_lyrics
 
     log.warning("Couldn't find lyrics")
@@ -183,8 +189,11 @@ def get_data_from_title(title: str) -> tuple:
     '''
     Attempts to extract the song title and artists from the video title
     '''
-
-    artist, title = get_artist_title(title)
+    try:
+        artist, title = get_artist_title(title)
+    except TypeError:
+        log.warning("Couldn't determine artists and title")
+        artist = None
 
     return artist, title
 
@@ -307,15 +316,26 @@ async def get_genius_lyrics(_id: str, env: EnvVariables, artist: str = None, tra
     if not track:
         artist, track = await get_song_data(_id)
 
-    # Set function parameters
+    # Check if artists exists
     if artist:
+
+        # Search with artists
         genius_func = functools.partial(genius.search_song,
                                         track,
                                         artist=artist)
-    else:
-        genius_func = functools.partial(genius.search_song,
-                                        track)
+
+        # Execute lyrics search
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, genius_func)
+
+        # Return lyrics if found
+        if result:
+            return result
+
+    # Search without artist
+    genius_func = functools.partial(genius.search_song,
+                                    track)
 
     # Execute lyrics search
     loop = asyncio.get_event_loop()
-    return str(loop.run_in_executor(None, genius_func))
+    return await loop.run_in_executor(None, genius_func)

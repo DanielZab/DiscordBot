@@ -1,1 +1,1 @@
-pass
+print(str(None))
