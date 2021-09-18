@@ -6,6 +6,7 @@ from typing import List
 from lyricsgenius.api import Song
 log = logging.getLogger(__name__)
 
+# TODO end of lyrics
 
 def create_queue_string(queuelist: list, amount: int) -> List[str]:
 

@@ -234,6 +234,10 @@ class MyClient(commands.Bot):
     def stop_repeat(self):
         self.repeat = False
         self.repeat_counter = -1
+    
+    def start_repeat(self, amount):
+        self.repeat = True
+        self.repeat_counter = amount
 
     async def update_queuelist_messages(self) -> None:
 
@@ -500,7 +504,6 @@ class MyClient(commands.Bot):
     @tasks.loop(seconds=0.1)
     async def update_duration(self):
 
-        # TODO test other method
         # Add half a second to the duration timer if the player is currently playing
         if self.vc and self.vc.is_playing():
             dif = datetime.datetime.now() - self.now
