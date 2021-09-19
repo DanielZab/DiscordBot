@@ -1,3 +1,6 @@
+'''
+Stores all http requests for uploading/updating slash commands
+'''
 from typing import final
 from discord import player
 import requests
@@ -8,6 +11,7 @@ import json
 import logging
 log = logging.getLogger(__name__)
 
+# Load discord token
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
@@ -20,9 +24,15 @@ headers = {
     "Authorization": f"Bot {TOKEN}"
 }
 
+
 # region functions
-def get_playlist_command(choice: list = []):
-    p = {
+def get_playlist_command(choice: list = []) -> dict:
+    '''
+    Create the playlist slash command http request
+    The passed choices will be uploaded as the possible options when selecting a downloaded playlist
+    '''
+
+    playlist = {
         "name": "playlist",
         "description": "Adds the contents of a playlist to the queue",
         "options": [
@@ -55,10 +65,15 @@ def get_playlist_command(choice: list = []):
         ]
     }
 
-    return p
+    return playlist
 
 
-def get_delete_command(choice: list = []):
+def get_delete_command(choice: list = []) -> dict:
+    '''
+    Create the delete slash command http request
+    The passed choices will be uploaded as the possible options when selecting a downloaded playlist
+    '''
+
     delete = {
         "name": "delete",
         "description": "Delete something",
@@ -82,7 +97,12 @@ def get_delete_command(choice: list = []):
     return delete
 
 
-def get_update_command(choice: list = []):
+def get_update_command(choice: list = []) -> dict:
+    '''
+    Create the update slash command http request
+    The passed choices will be uploaded as the possible options when selecting a downloaded playlist
+    '''
+
     update = {
         "name": "update",
         "description": "Update something",
@@ -320,6 +340,9 @@ delete = get_delete_command()
 
 
 def post(js):
+    '''
+    Post new slash command
+    '''
     global url
     global headers
 
@@ -329,6 +352,9 @@ def post(js):
 
 
 def get() -> str:
+    '''
+    Get all currently active slash commands
+    '''
     global url
     global headers
     global json
@@ -337,6 +363,9 @@ def get() -> str:
 
 
 def update_playlist_commands() -> None:
+    '''
+    Updates all commands that contain choices based on the downloaded playlists
+    '''
 
     from file_manager import get_playlists
 
@@ -348,9 +377,7 @@ def update_playlist_commands() -> None:
 
     # Create play, update and delete commands with new playlist choices
     play = get_playlist_command(choices)
-
     update = get_update_command(choices)
-
     delete = get_delete_command(choices)
 
     # Send commands
@@ -358,9 +385,10 @@ def update_playlist_commands() -> None:
     post(update)
     post(delete)
 
-    log.info('Updated play command')
+    log.info('Updated playlist commands')
 
 
 if __name__ == "__main__":
-    update_playlist_commands()
-# TODO dynamic url
+    pass
+
+# TODO get server url

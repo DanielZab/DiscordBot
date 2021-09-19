@@ -270,7 +270,7 @@ async def add_to_queue(url: str, index: int = 0, file_data: Union[bool, dict] = 
 
         client.waiting = False
 
-        client.check_player.start()
+        client.start_player()
 
     # Return song name
     return name
@@ -428,7 +428,7 @@ async def _play(ctx: SlashContext, name: str = None, url: str = None, amount: in
     else:
         
         # Starting player
-        client.start_player()
+        client.start_player(force=True)
 
 
 @slash.slash(name="playlist")
@@ -848,7 +848,7 @@ async def _create_playlist(ctx: SlashContext, url: str, name: str) -> None:
         await playlist_msg.edit(content="Finished creating playlist")
 
         # Start player
-        client.start_player()
+        client.start_player(force=True)
     
     except Exception as e:
 
@@ -941,7 +941,7 @@ async def _update_playlist(ctx: SlashContext, name: str, url: str = "") -> None:
             client.lock.release()
         
     await msg.edit(content="Finished updating playlist")
-    client.start_player()
+    client.start_player(force=True)
 
 
 @slash.subcommand(base="delete", name="playlist")
@@ -982,7 +982,7 @@ async def _delete_playlist(ctx: SlashContext, name: str) -> None:
     db.execute(f"DELETE FROM playlists WHERE name = {name}")
 
     # Start music player again
-    client.start_player()
+    client.start_player(force=True)
 
     await ctx.send(name + " was deleted")
 
@@ -1235,3 +1235,4 @@ if __name__ == "__main__":
 # TODO setup
 # TODO visibility control
 # TODO volume control
+# TODO playlists for each server seperately
