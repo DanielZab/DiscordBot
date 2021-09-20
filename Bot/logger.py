@@ -1,3 +1,6 @@
+'''
+Configures logger
+'''
 import logging
 import os
 

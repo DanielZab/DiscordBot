@@ -1,17 +1,25 @@
-import json
-from typing import Union
+'''
+Connects to the youtube data api
+'''
+from typing import Union, Tuple
 import googleapiclient.discovery
-import google_auth_oauthlib.flow
 import googleapiclient.errors
-from googleapiclient.http import MediaIoBaseDownload
-import os, io, random, re
+import os, re
 import logging
 import asyncio
 
 log = logging.getLogger(__name__)
 
+# Disable OAuthlib's HTTPS verification when running locally
+# DO NOT leave this option enabled in production
+# os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
 
 def get_split_list(li: list, size: int) -> list:
+    '''
+    Splits a list into multiple lists of fixed size
+    '''
+
     new_list = []
     start_index = 0
     while len(li[start_index:]) > size:
@@ -22,17 +30,32 @@ def get_split_list(li: list, size: int) -> list:
 
 
 def convert_duration(duration: str) -> int:
+    '''
+    Converts the youtube time format to seconds
+    '''
+
+    # Match string
     match = re.match(r"^PT((?P<h>\d{1,2})H)?((?P<m>\d{1,2})M)?((?P<s>\d{1,2})S)?$", duration)
+
+    # Check if matched
     if match:
+
+        # Extract hours, seconds and minutes
         h, m, s = match.group("h") or 0, match.group("m") or 0, match.group("s") or 0
+
+        # Convert to seconds
         return round(int(h) * 3600 + int(m) * 60 + int(s))
+
     log.error(f"Unknown youtube list duration format: {duration}")
 
 
 class YouTube:
     '''
-    Performs Youtube searches and loads playlists
+    Connects to the youtube data api and executes search queries
+    Paramters:
+        key: The youtube data api developer key/token
     '''
+
     def __init__(self, key: str) -> None:
         self.key = key
 
@@ -45,23 +68,24 @@ class YouTube:
                                                         self.api_version, 
                                                         developerKey=self.key)
 
-    async def video_list_query(self, part: str, _id: str):
+    async def video_list_query(self, part: str, _id: str) -> dict:
+        '''
+        Gets the details of a video by its id
+        '''
 
-        # Disable OAuthlib's HTTPS verification when running locally
-        # DO NOT leave this option enabled in production
-        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
-
+        # Define settings
         request = self.resource.videos().list(
             part=part,
             id=_id
         )
 
+        # Run search in asnyc executor
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, request.execute)
 
-    async def get_name(self, _id: str):
+    async def get_name(self, _id: str) -> str:
         '''
-        Get name of youtube video
+        Gets name of youtube video by its id
         '''
 
         log.info("Getting name of video: " + str(_id))
@@ -86,13 +110,16 @@ class YouTube:
 
     async def get_search(self, keyword: str, amount: int = 1, search_type: str = "video", full_url: bool = True) -> list:
         '''
-        Perform a Youtube search
+        Performs a youtube search
+        Parameters:
+            keyword:    The youtube search query
+            amount:     The amount of result to return
+            search_type:Whether to search for a video, playlist or channel
+            full_url:   Indicates whether to return the full url or only the ids
+        Returns a list containing the urls/ids
         '''
 
         log.info(f"Performing youtube search. Query: {keyword}, amount: {amount}, type: {search_type}")
-        # Disable OAuthlib's HTTPS verification when running locally
-        # DO NOT leave this option enabled in production
-        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
         # Set search details
         request = self.resource.search().list(
@@ -106,11 +133,15 @@ class YouTube:
 
         # Perform search
         try:
+            
+            # Run search query in async executor
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(None, request.execute)
             
-            # Extract urls
+            # Extract ids/urls
             for i in range(0, amount):
+
+                # Check whether to append whole url or id only
                 if full_url:
                     url_list.append("http://www.youtube.com/watch?v=" + response['items'][i]['id']['videoId'])
                 else:
@@ -131,16 +162,15 @@ class YouTube:
 
         log.info("Getting contents of playlist. Id: " + str(_id))
 
-        # Disable OAuthlib's HTTPS verification when running locally.
-        # DO NOT leave this option enabled in production.
-        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+        # Create page token container. For playlists with more than 50 videos
+        # each 50 videos a new page needs to be loaded
+        p_token = ''
 
-        # Get contents
-        p_token = ''  # Container for the page token. Allows to load playlists that contain more than 50 videos
+        # Get playlist contents
         result = []
         while True:
 
-            # Set playlist details
+            # Set playlist search details
             request = self.resource.playlistItems().list(
                 part="snippet",
                 maxResults=50,
@@ -148,9 +178,9 @@ class YouTube:
                 playlistId=_id
             )
 
-            # Get contents
             try:
 
+                # Execute search query in asnyc executor
                 loop = asyncio.get_event_loop()
                 response = await loop.run_in_executor(None, request.execute)
 
@@ -161,50 +191,54 @@ class YouTube:
             # Extract urls
             for item in response['items']:
                 video_Id = item['snippet']['resourceId']['videoId']
+
+                # Check whether to return full url or only the ids
                 if full_url:
                     result.append('https://www.youtube.com/watch?v=' + video_Id)
                 else:
                     result.append(video_Id)
 
-            # Check if a next page exists
+            # Try to get next token, will fail if there's no next page
             try:
                 p_token = response['nextPageToken']
 
-            except:
+            except KeyError:
                 log.info("Got all contents successfully")
                 break
 
         return result
     
-    async def get_captions(self, _id):
+    async def get_captions(self, _id) -> Tuple[str, str]:
         '''
-        Get ids of video captions if available
+        Gets the ids of youtube video captions if available
+        Returns a tuple containing the id of the captions and their language
         '''
 
         log.info("Getting captions")
 
-        # Define method parameters
+        # Define search query settings
         request = self.resource.captions().list(
             part="snippet",
             videoId=_id
         )
 
-        # Get captions
         try:
 
+            # Execute query in async executor
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(None, request.execute)
 
         except Exception as e:
             log.error("Couldn't get captions. Error: " + str(e))
-            return None
+            return
 
+        # Extract captions
         captions = response["items"]
 
         # Check if captions exist
         if not len(captions):
             log.info("No captions available")
-            return None
+            return
         
         log.info("Captions found")
 
@@ -214,26 +248,38 @@ class YouTube:
         return captions
     
     async def get_length(self, _id: Union[list, str]) -> Union[list, int]:
-        
+        '''
+        Gets the length of a single youtube video or a video list
+        Returns the video length in seconds/a list with all successfully
+        retrieved video lengths, and their ids
+        '''
+
+        # Check if passed parameter is a list
         if isinstance(_id, list):
+
+            # Split list into smaller lists
             split_list = get_split_list(_id, 50)
 
-            lengths_list = [[],[]]
+            # Create results container
+            lengths_list = [[], []]
 
             assert split_list
 
             for entry in split_list:
-                id_string = ",".join(entry)
 
+                # Perform search query
+                id_string = ",".join(entry)
                 response = await self.video_list_query("contentDetails", id_string)
 
                 assert response
 
+                # Extract durations
                 for item in response["items"]:
-                    print(item["contentDetails"]["duration"])
                     duration = convert_duration(item["contentDetails"]["duration"])
                     lengths_list[0].append(duration)
                 
+                # Add all ids whose lengths were retrieved to results list
+                # This process eliminates all ids that were invalid
                 difference = 0
                 for i in range(len(entry)):
                     item_index = i - difference
@@ -243,8 +289,14 @@ class YouTube:
                         
             return lengths_list
 
+        # Check if passed parameter is a string
         elif isinstance(_id, str):
-            response = await self.video_list_query("contentDetails", _id)
-            return convert_duration(response["items"][0]["contentDetails"]["duration"])
-    
 
+            # Perform search query
+            response = await self.video_list_query("contentDetails", _id)
+
+            # Extract, convert and return duration
+            return convert_duration(response["items"][0]["contentDetails"]["duration"])
+        
+        # Error detection
+        log.error("Unknown paramter in get_length " + str(_id))

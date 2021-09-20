@@ -1,18 +1,23 @@
+'''
+Performs all download processes
+'''
 import logging, subprocess, os, functools
 import pafy
 import youtube_dl
 from pydub import AudioSegment
 import asyncio
 
-from youtube_dl.compat import _TreeBuilder
 log = logging.getLogger(__name__)
 
 
-def download_audio_manually(url) -> None:
+def download_audio_manually(url: str) -> None:
+    '''
+    Download audio via youtube-dl
+    '''
 
-    # Download audio into specific test folder
-    output = subprocess.run(f'youtube-dl -F {url}', capture_output=True).stdout
-    log.debug(output.decode("utf-8"))
+    log.info("Downloading audio via youtube-dl")
+
+    # Set youtube-dl settings
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': "./temp/%(title)s.%(ext)s",
@@ -23,19 +28,19 @@ def download_audio_manually(url) -> None:
         }]
     }
 
+    # Download audio
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
-    #msg = f'youtube-dl -o "./test/%(title)s.%(ext)s" --extract-audio --format best {url}'
-    #os.system(msg)
 
 
-def normalizeAudio(audiopath: str, destination_path: str) -> None:
+def normalizeAudio(audiopath: str, destination_path: str) -> int:
     '''
     Changes the volume of the track to a uniform one
     Returns the length of the track in seconds
     '''
     log.info(f"Normalizing {audiopath}")
-    # Get song with pydub
+
+    # Read file with pydub
     song = AudioSegment.from_file(audiopath)
 
     # Normalize sound
@@ -50,13 +55,14 @@ def normalizeAudio(audiopath: str, destination_path: str) -> None:
     os.remove(audiopath)
 
     log.info(f"Normalized {audiopath}")
+
     # Return length of song
-    return song.duration_seconds
+    return int(song.duration_seconds)
 
 
 async def try_to_download(url: str, target: str) -> tuple:
     '''
-    Downloads and normalizes audio
+    Downloads and normalizes audio. Returns its path and length
     '''
 
     # Download audio
@@ -66,10 +72,13 @@ async def try_to_download(url: str, target: str) -> tuple:
     files = os.listdir("temp")
 
     try:
-        # TODO Multiprocessing
+        # Get video details with pafy
         vid = pafy.new(url)
+
+        # Select best audio
         bestaudio = vid.getbestaudio(preftype="webm")
 
+        # Download video
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, functools.partial(bestaudio.download,
                                                            filepath="temp\\",
@@ -77,32 +86,35 @@ async def try_to_download(url: str, target: str) -> tuple:
 
     except Exception as e:
 
+        # Download audio via youtube-dl
         log.error("Pafy failed downloading: " + str(e))
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, download_audio_manually, url)
-    
+
     # Get path of downloaded file by getting all files in test directory
     # and removing all files that already were there
     path = list(set(os.listdir("temp")).difference(set(files)))[0]
-    log.info(f"Path found: {str(path)}")
-    
+
     # Normalize volume of track, move it to the queue folder and get its length
     loop = asyncio.get_event_loop()
-
     length = await loop.run_in_executor(None, normalizeAudio, "temp\\" + path, target + "\\" + path)
 
-    log.info("Finished downloading")
+    log.info("Finished downloading and normalizing. Path: " + str(path))
 
     return path, length
 
 
 async def dl_captions(url: str, lang: str):
+    '''
+    Download captions of a video via youtube-dl and return their path
+    '''
 
+    # Get all files in captions directory
     files = os.listdir("captions")
-    loop = asyncio.get_event_loop()
+
     log.info(f"Downloading captions of {url} in {lang}")
 
-    log.info("Downloading captions")
+    # Set youtube-dl settings
     ytdl_options = {
         "writesubtitles": True,
         'outtmpl': "./captions/%(title)s.%(ext)s",
@@ -110,15 +122,22 @@ async def dl_captions(url: str, lang: str):
         "skip_download": True,
         "quiet": True
     }
+
+    # Start download process
     with youtube_dl.YoutubeDL(ytdl_options) as ydl:
+        loop = asyncio.get_event_loop()
         dl_function = functools.partial(ydl.download,
                                         [url])
         await loop.run_in_executor(None, dl_function)
-    
+
     try:
+
+        # Get path of downloaded file by getting all files in test directory
+        # and removing all files that already were there
         path = list(set(os.listdir("captions")).difference(set(files)))[0]
-    
+
     except IndexError:
+        log.info("No captions downloaded")
         return None
 
     return "captions\\" + path
